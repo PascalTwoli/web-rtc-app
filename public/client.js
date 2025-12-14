@@ -56,12 +56,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // Video Interface
   const localVideo = document.getElementById("localVideo");
   const remoteVideo = document.getElementById("remoteVideo");
-  const remoteLabel = document.getElementById("remoteLabel");
   const audioOnlyPlaceholder = document.getElementById("audioOnlyPlaceholder");
   const localAudioPlaceholder = document.getElementById(
     "localAudioPlaceholder"
   );
   const remoteAudioLabel = document.getElementById("remoteAudioLabel");
+  const localAudioLabel = document.getElementById("localAudioLabel");
+  const remoteVideoLabel = document.getElementById("remoteVideoLabel");
+  const localVideoLabel = document.getElementById("localVideoLabel");
 
   // Controls
   const controlsBar = document.getElementById("controls-bar");
@@ -83,7 +85,29 @@ document.addEventListener("DOMContentLoaded", () => {
   const callingText = document.getElementById("calling-text");
   const cancelCallBtn = document.getElementById("cancelCallBtn");
 
+  // Call Ended Overlay
+  const callEndedOverlay = document.getElementById("call-ended-overlay");
+  const callEndedDuration = document.getElementById("call-ended-duration");
+
   const remoteRingtoneElement = document.getElementById("remoteRingtone");
+
+  // Unlock Audio Context for Autoplay Policy
+  function unlockAudio() {
+    if (remoteRingtoneElement) {
+      // Just play and pause immediately to unlock
+      remoteRingtoneElement
+        .play()
+        .then(() => {
+          remoteRingtoneElement.pause();
+          remoteRingtoneElement.currentTime = 0;
+        })
+        .catch(() => {});
+    }
+  }
+
+  document.body.addEventListener("click", unlockAudio, { once: true });
+  document.body.addEventListener("touchstart", unlockAudio, { once: true });
+
   const toastContainer = document.getElementById("toast-container");
 
   // --- UI State Management ---
@@ -106,6 +130,13 @@ document.addEventListener("DOMContentLoaded", () => {
       returnToCallBtn.classList.remove("hidden");
     } else {
       returnToCallBtn.classList.add("hidden");
+    }
+
+    // Mobile: If switching to a main view (chat or video), close sidebar
+    if (window.innerWidth <= 768) {
+      if (viewId === "chat-interface" || viewId === "video-interface") {
+        if (sidebar) sidebar.classList.add("closed");
+      }
     }
   }
 
@@ -229,6 +260,10 @@ document.addEventListener("DOMContentLoaded", () => {
       showToast("Please enter your name", "danger");
       return;
     }
+
+    // Explicitly unlock audio on join
+    unlockAudio();
+
     myUserName = name;
     localStorage.setItem("peers_username", name);
     initWebSocket();
@@ -393,9 +428,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
         localVideoWrapper.className = "video-wrapper remote";
         remoteVideoWrapper.className = "video-wrapper local";
+
+        // Update Labels for Swapped State
+        if (localVideoLabel) localVideoLabel.textContent = "You";
+        if (remoteVideoLabel)
+          remoteVideoLabel.textContent = selectedUser || "Remote";
       } else {
         localVideoWrapper.className = "video-wrapper local";
         remoteVideoWrapper.className = "video-wrapper remote";
+
+        // Reset Labels
+        if (localVideoLabel) localVideoLabel.textContent = "You";
+        if (remoteVideoLabel)
+          remoteVideoLabel.textContent = selectedUser || "Remote";
       }
     };
 
@@ -412,6 +457,11 @@ document.addEventListener("DOMContentLoaded", () => {
         // Swap back
         localVideoWrapper.className = "video-wrapper local";
         remoteVideoWrapper.className = "video-wrapper remote";
+
+        // Reset Labels
+        if (localVideoLabel) localVideoLabel.textContent = "You";
+        if (remoteVideoLabel)
+          remoteVideoLabel.textContent = selectedUser || "Remote";
       }
     };
   }
@@ -499,7 +549,8 @@ document.addEventListener("DOMContentLoaded", () => {
         endCall(true);
       };
 
-      remoteLabel.textContent = `Calling ${selectedUser}...`;
+      if (remoteVideoLabel) remoteVideoLabel.textContent = selectedUser;
+      if (remoteAudioLabel) remoteAudioLabel.textContent = selectedUser;
     } catch (err) {
       console.error(err);
     }
@@ -520,7 +571,8 @@ document.addEventListener("DOMContentLoaded", () => {
       audioOnlyPlaceholder.classList.remove("fade-out"); // Ensure visible
 
       remoteVideo.classList.add("hidden");
-      remoteAudioLabel.textContent = selectedUser;
+      if (remoteAudioLabel) remoteAudioLabel.textContent = selectedUser;
+      if (remoteVideoLabel) remoteVideoLabel.textContent = selectedUser;
       if (remoteAvatarCircle)
         remoteAvatarCircle.textContent = getInitials(selectedUser);
 
@@ -529,11 +581,14 @@ document.addEventListener("DOMContentLoaded", () => {
       localAudioPlaceholder.classList.remove("hidden"); // Remove hard hide
       localAudioPlaceholder.classList.remove("fade-out"); // Ensure visible
 
+      if (localAudioLabel) localAudioLabel.textContent = "You";
+      if (localVideoLabel) localVideoLabel.textContent = "You";
       if (localAvatarCircle)
         localAvatarCircle.textContent = getInitials(myUserName);
 
       // Controls
       videoBtn.classList.add("hidden");
+      if (flipCameraBtn) flipCameraBtn.classList.add("hidden"); // Hide flip in audio mode
       // Mute button stays neutral unless actually muted (handled by track state check if needed)
     } else {
       // Remote
@@ -541,16 +596,26 @@ document.addEventListener("DOMContentLoaded", () => {
       audioOnlyPlaceholder.classList.add("fade-out"); // Fade out to show video
       remoteVideo.classList.remove("hidden");
 
+      if (remoteVideoLabel) remoteVideoLabel.textContent = selectedUser;
+      if (remoteAudioLabel) remoteAudioLabel.textContent = selectedUser;
+
       // Local
       localVideo.classList.remove("hidden");
       localAudioPlaceholder.classList.remove("hidden"); // Ensure it exists in DOM
       localAudioPlaceholder.classList.add("fade-out"); // Fade out to show video
 
+      if (localVideoLabel) localVideoLabel.textContent = "You";
+      if (localAudioLabel) localAudioLabel.textContent = "You";
       if (localAvatarCircle)
         localAvatarCircle.textContent = getInitials(myUserName);
 
       // Controls
       videoBtn.classList.remove("hidden");
+
+      // Show flip button only on mobile and video mode
+      if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        if (flipCameraBtn) flipCameraBtn.classList.remove("hidden");
+      }
 
       // Check track states to update buttons correctly
       const stream = localVideo.srcObject;
@@ -612,7 +677,15 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       remoteRingtoneElement.volume = 1.0;
       remoteRingtoneElement.muted = false;
-      await remoteRingtoneElement.play();
+      const playPromise = remoteRingtoneElement.play();
+
+      if (playPromise !== undefined) {
+        playPromise.catch((error) => {
+          console.warn("Ringtone playback failed (autoplay policy?):", error);
+          // Fallback: Show a highly visible toast or vibration if possible
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        });
+      }
     } catch (e) {
       console.warn("Ringtone playback failed (autoplay policy?):", e);
     }
@@ -620,7 +693,17 @@ document.addEventListener("DOMContentLoaded", () => {
     // If Video Call, start preview immediately
     if (incomingCallType === "video") {
       try {
-        // Switch to video view to show preview
+        // Force switch to video view (crucial for mobile)
+        // But we are in modal mode. We just need to ensure background is correct?
+        // Actually, wait until answer to switch view fully?
+        // No, for preview we need to see it.
+
+        // If we are on placeholder, we need to ensure video interface is visible behind modal?
+        // Yes.
+
+        // Update chat context immediately for seamless transition later
+        if (chatUserName) chatUserName.textContent = selectedUser;
+
         switchView("video-interface");
         updateCallUI("video");
 
@@ -634,13 +717,20 @@ document.addEventListener("DOMContentLoaded", () => {
         // Ensure local avatar is hidden since we have video
         document
           .getElementById("localAudioPlaceholder")
-          .classList.add("hidden");
+          .classList.add("fade-out");
       } catch (err) {
         console.error("Failed to start video preview", err);
       }
     } else {
       // Audio call - ensure modal is opaque
       incomingModal.classList.remove("video-preview-mode");
+
+      // Also update chat user name for audio calls
+      if (chatUserName) chatUserName.textContent = selectedUser;
+
+      // IMPORTANT: For audio calls, we MUST also switch view to ensure we are not stuck on Users List
+      switchView("video-interface");
+      updateCallUI("audio");
     }
 
     answerCallBtn.onclick = async () => {
@@ -648,6 +738,25 @@ document.addEventListener("DOMContentLoaded", () => {
       incomingModal.classList.remove("video-preview-mode"); // Reset
       remoteRingtoneElement.muted = true;
       remoteRingtoneElement.pause();
+      remoteRingtoneElement.currentTime = 0; // Reset
+
+      // Ensure the user context is set so chat history can be loaded later
+      if (selectedUser) {
+        loadChatHistory(selectedUser);
+      }
+
+      // Ensure we are definitely on the right view
+      if (incomingCallType === "video") {
+        switchView("video-interface");
+      } else {
+        // For audio, we also use video interface but in audio mode
+        switchView("video-interface");
+        updateCallUI("audio");
+      }
+
+      // Also ensure the sidebar is "closed" (mobile) or chat is active context
+      // On mobile, switchView handles hiding other main-views.
+
       await acceptCall(data);
     };
 
@@ -719,7 +828,8 @@ document.addEventListener("DOMContentLoaded", () => {
       startCallTimer();
 
       addMessage(`Connected to ${data.from}`, "system");
-      remoteLabel.textContent = data.from;
+      if (remoteVideoLabel) remoteVideoLabel.textContent = data.from;
+      if (remoteAudioLabel) remoteAudioLabel.textContent = data.from;
     } catch (err) {
       console.error("Error in acceptCall:", err);
       showToast("Failed to accept call: " + err.message, "danger");
@@ -763,7 +873,8 @@ document.addEventListener("DOMContentLoaded", () => {
       switchView("video-interface");
 
       showToast("Call established", "success");
-      remoteLabel.textContent = selectedUser;
+      if (remoteVideoLabel) remoteVideoLabel.textContent = selectedUser;
+      if (remoteAudioLabel) remoteAudioLabel.textContent = selectedUser;
     } catch (err) {
       console.error(err);
     }
@@ -837,37 +948,96 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function endCall(sendSignal = true) {
-    isCallActive = false; // Reset active state
-    stopCallTimer(); // Stop timer
-
-    // Hide overlays
-    if (callingOverlay) callingOverlay.classList.add("hidden");
-    if (incomingModal) incomingModal.classList.add("hidden");
-
-    if (peerConnection) {
-      peerConnection.close();
-      peerConnection = null;
-    }
-    if (localVideo.srcObject) {
-      localVideo.srcObject.getTracks().forEach((t) => t.stop());
-      localVideo.srcObject = null;
-    }
-    remoteVideo.srcObject = null;
-
-    if (sendSignal && selectedUser && ws.readyState === WebSocket.OPEN) {
+    if (sendSignal && selectedUser && isCallActive) {
       ws.send(
         JSON.stringify({ type: "hangup", to: selectedUser, from: myUserName })
       );
     }
 
+    // Capture duration before stopping timer
+    const durationText = callTimerEl.textContent;
+
+    isCallActive = false; // Reset active state
+    stopCallTimer(); // Stop timer
+
+    // Stop Media Tracks
+    if (localVideo.srcObject) {
+      localVideo.srcObject.getTracks().forEach((track) => track.stop());
+      localVideo.srcObject = null;
+    }
+    if (remoteVideo.srcObject) {
+      remoteVideo.srcObject.getTracks().forEach((track) => track.stop());
+      remoteVideo.srcObject = null;
+    }
+
+    // Hide overlays
+    if (callingOverlay) callingOverlay.classList.add("hidden");
+    if (incomingModal) incomingModal.classList.add("hidden");
+    if (incomingModal) incomingModal.classList.remove("video-preview-mode");
+
+    if (peerConnection) {
+      peerConnection.close();
+      peerConnection = null;
+    }
+
+    // Show Call Ended Overlay
+    if (callEndedOverlay && durationText !== "00:00") {
+      callEndedDuration.textContent = durationText;
+      callEndedOverlay.classList.remove("hidden");
+
+      setTimeout(() => {
+        callEndedOverlay.classList.add("hidden");
+        switchView("chat-interface"); // Return to chat
+        // Ensure we don't clear selectedUser here so chat remains active
+
+        // Force reload chat history to ensure context is correct
+        if (selectedUser) {
+          loadChatHistory(selectedUser);
+        }
+      }, 2000);
+    } else {
+      // If no duration (cancelled call), just switch back immediately or stay on chat
+      // If we were calling, we want to go back to chat.
+      switchView("chat-interface");
+    }
+
+    // Do NOT nullify selectedUser here.
+    // selectedUser = null;
+    callType = "video"; // Reset default
+    currentFacingMode = "user"; // Reset camera
+
     // Reset UI
-    switchView("chat-interface"); // Go back to chat
-    // Optional: Go back to users? or stay on chat
-    // selectedUser = null; // Keep selected user to continue chatting
-    pendingRemoteCandidates = [];
+    if (remoteVideoLabel) remoteVideoLabel.textContent = "Remote";
+    if (remoteAudioLabel) remoteAudioLabel.textContent = "User";
+    if (remoteAvatarCircle) remoteAvatarCircle.textContent = "";
+
+    // Reset buttons
+    muteBtn.classList.remove("danger");
+    videoBtn.classList.remove("danger");
   }
 
   // --- Chat Logic ---
+
+  async function loadChatHistory(user) {
+    if (!user) return; // Guard against null user
+
+    chatUserName.textContent = user;
+    mainMessages.innerHTML = "";
+
+    // Also ensure sidebar selection is updated visually?
+    // Not strictly necessary but good for consistency
+    document.querySelectorAll("#usersList li").forEach((li) => {
+      if (li.textContent === user) {
+        // Add active class if we had one
+        li.style.background = "#3a3a3a"; // Highlight
+      } else {
+        li.style.background = "";
+      }
+    });
+
+    try {
+    } catch (e) {}
+  }
 
   function sendChat(inputEl) {
     const text = inputEl.value.trim();
