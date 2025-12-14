@@ -96,6 +96,9 @@ wss.on("connection", (ws) => {
             targetUserWs.send(JSON.stringify(payload));
           }
           break;
+        case "ping":
+          ws.send(JSON.stringify({ type: "pong" }));
+          break;
         // Add more case handlers as needed
         default:
           console.log("Unknown message type:", data.type);

@@ -12,6 +12,32 @@ const AppState = {
   maxReconnectAttempts: 5,
 };
 
+// Simple Chat Persistence
+const ChatStore = {
+  getMessages: (partner) => {
+    try {
+      const key = `chat_${AppState.myUserName}_${partner}`;
+      const data = localStorage.getItem(key);
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      console.error("Failed to load chat history", e);
+      return [];
+    }
+  },
+  saveMessage: (partner, msg) => {
+    try {
+      const key = `chat_${AppState.myUserName}_${partner}`;
+      const messages = ChatStore.getMessages(partner);
+      messages.push({ ...msg, timestamp: Date.now() });
+      // Keep last 50 messages
+      if (messages.length > 50) messages.shift();
+      localStorage.setItem(key, JSON.stringify(messages));
+    } catch (e) {
+      console.error("Failed to save chat message", e);
+    }
+  },
+};
+
 let config = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
@@ -185,16 +211,43 @@ document.addEventListener("DOMContentLoaded", () => {
     showToast(userMessage, "danger");
   }
 
-  function addMessage(text, className = "system", fromUser = null) {
+  // Modified to handle raw text or message objects
+  function addMessage(textOrObj, className = "system", fromUser = null) {
+    let text = textOrObj;
+    let timestamp = null;
+
+    if (typeof textOrObj === "object") {
+      text = textOrObj.text;
+      timestamp = textOrObj.timestamp;
+    }
+
     const createMsg = (container) => {
       if (!container) return;
       const div = document.createElement("div");
       div.className = "msg " + className;
+
       if (fromUser && className === "other") {
-        div.innerHTML = `<strong>${fromUser}</strong><br>${text}`;
+        const strong = document.createElement("strong");
+        strong.textContent = fromUser;
+        div.appendChild(strong);
+        div.appendChild(document.createElement("br"));
+        div.appendChild(document.createTextNode(text));
       } else {
         div.textContent = text;
       }
+
+      // Add Timestamp if available
+      if (timestamp || className !== "system") {
+        const timeSpan = document.createElement("span");
+        timeSpan.className = "msg-time";
+        const date = timestamp ? new Date(timestamp) : new Date();
+        timeSpan.textContent = date.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        div.appendChild(timeSpan);
+      }
+
       container.appendChild(div);
 
       // Auto-scroll
@@ -298,6 +351,31 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Enter") joinBtn.click();
   });
 
+  // --- Heartbeat Logic ---
+  let heartbeatInterval = null;
+  let pongTimeoutId = null;
+
+  function startHeartbeat() {
+    stopHeartbeat();
+    heartbeatInterval = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ping" }));
+        // If we don't get a pong back in 10 seconds, assume dead
+        pongTimeoutId = setTimeout(() => {
+          console.warn("Pong timeout - closing connection");
+          ws.close();
+        }, 10000);
+      }
+    }, 30000); // 30 seconds
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    if (pongTimeoutId) clearTimeout(pongTimeoutId);
+    heartbeatInterval = null;
+    pongTimeoutId = null;
+  }
+
   function initWebSocket() {
     if (
       ws &&
@@ -326,6 +404,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ws.onopen = () => {
       showToast("Connected to server", "success");
       AppState.reconnectAttempts = 0; // Reset attempts on success
+      startHeartbeat();
       if (AppState.myUserName) {
         ws.send(
           JSON.stringify({ type: "join", username: AppState.myUserName })
@@ -336,6 +415,9 @@ document.addEventListener("DOMContentLoaded", () => {
     ws.onmessage = async (event) => {
       const data = JSON.parse(event.data);
       switch (data.type) {
+        case "pong":
+          if (pongTimeoutId) clearTimeout(pongTimeoutId);
+          break;
         case "welcome":
           addMessage(data.message, "system");
           break;
@@ -374,8 +456,21 @@ document.addEventListener("DOMContentLoaded", () => {
         case "chat":
           if (data.from !== AppState.selectedUser) {
             showToast(`New message from ${data.from}`, "info");
+            // Also save message if not currently selected
+            ChatStore.saveMessage(data.from, {
+              text: data.text,
+              type: "other",
+              from: data.from,
+            });
+          } else {
+            // Save and Add
+            ChatStore.saveMessage(data.from, {
+              text: data.text,
+              type: "other",
+              from: data.from,
+            });
+            addMessage(data.text, "other", data.from);
           }
-          addMessage(data.text, "other", data.from);
           break;
         default:
           console.log("Unknown message:", data.type);
@@ -388,6 +483,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     ws.onclose = () => {
+      stopHeartbeat();
       console.log("Disconnected from server");
       // showToast("Disconnected from server", "danger");
 
@@ -415,8 +511,18 @@ document.addEventListener("DOMContentLoaded", () => {
       const li = document.createElement("li");
       li.textContent = name;
       li.onclick = () => {
+        // If already selected, do nothing or just switch view
+        if (AppState.selectedUser === name) {
+          switchView("chat-interface");
+          sidebar.classList.add("closed");
+          return;
+        }
+
         AppState.selectedUser = name;
         chatUserName.textContent = name;
+
+        loadChatHistory(name); // Load history
+
         // Switch to Chat Interface
         switchView("chat-interface");
         // Hide sidebar on mobile
@@ -855,6 +961,9 @@ document.addEventListener("DOMContentLoaded", () => {
       localVideo.srcObject = null;
     }
 
+    if (AppState.selectedUser) {
+      loadChatHistory(AppState.selectedUser);
+    }
     switchView("chat-interface");
     // Keep selectedUser for chat
   }
@@ -881,7 +990,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function handleReject(data) {
-    showToast(`${data.from} rejected the call`, "danger");
+    const reason =
+      data.reason === "busy" ? "is on another call" : "declined the call";
+    showToast(`${data.from} ${reason}`, "danger");
     callingOverlay.classList.add("hidden");
     endCall(false);
   }
@@ -984,6 +1095,12 @@ document.addEventListener("DOMContentLoaded", () => {
     chatUserName.textContent = user;
     mainMessages.innerHTML = "";
 
+    // Load persisted messages
+    const messages = ChatStore.getMessages(user);
+    messages.forEach((msg) => {
+      addMessage(msg, msg.type, msg.from);
+    });
+
     document.querySelectorAll("#usersList li").forEach((li) => {
       if (li.textContent === user) {
         li.style.background = "#3a3a3a";
@@ -1005,6 +1122,12 @@ document.addEventListener("DOMContentLoaded", () => {
         text: text,
       })
     );
+
+    ChatStore.saveMessage(AppState.selectedUser, {
+      text: text,
+      type: "me",
+      from: AppState.myUserName,
+    });
 
     addMessage(text, "me");
     inputEl.value = "";
@@ -1106,4 +1229,21 @@ document.addEventListener("DOMContentLoaded", () => {
   hangupBtn.onclick = () => {
     endCall();
   };
+
+  // Ensure hangup on page close/refresh
+  window.addEventListener("beforeunload", () => {
+    if (AppState.isCallActive && AppState.selectedUser) {
+      // Use sendBeacon or just a quick WebSocket send if possible
+      // Since WS is async, it might not send in time, but we try.
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            type: "hangup",
+            to: AppState.selectedUser,
+            from: AppState.myUserName,
+          })
+        );
+      }
+    }
+  });
 });
