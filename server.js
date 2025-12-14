@@ -66,6 +66,7 @@ wss.on("connection", (ws) => {
         case "reject":
         case "ice":
         case "hangup":
+        case "chat":
           // Forward the offer/answer/ice to the selected user's WebSocket
           const targetUserWs = Array.from(users.entries()).find(
             ([, username]) => username === data.to
@@ -76,13 +77,20 @@ wss.on("connection", (ws) => {
           if (targetUserWs && targetUserWs.readyState === targetUserWs.OPEN) {
             const payload =
               data.type === "offer"
-                ? { type: "offer", offer: data.offer, from: users.get(ws) }
+                ? {
+                    type: "offer",
+                    offer: data.offer,
+                    from: users.get(ws),
+                    callType: data.callType,
+                  }
                 : data.type === "answer"
                 ? { type: "answer", answer: data.answer, from: users.get(ws) }
                 : data.type === "ice"
                 ? { type: "ice", ice: data.ice, from: users.get(ws) }
                 : data.type === "hangup"
                 ? { type: "hangup", from: users.get(ws) }
+                : data.type === "chat"
+                ? { type: "chat", text: data.text, from: users.get(ws) }
                 : { type: "reject", from: users.get(ws) };
 
             targetUserWs.send(JSON.stringify(payload));

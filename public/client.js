@@ -4,108 +4,310 @@ let dataChannel;
 let myUserName = null;
 let selectedUser = null;
 let pendingRemoteCandidates = [];
+let callType = "video"; // 'video' or 'audio'
+let isCallActive = false; // Tracks if a call is ongoing
 
 let config = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
 document.addEventListener("DOMContentLoaded", () => {
-  // DOM elements (safe to get now)
+  // UI Elements
+  const loginScreen = document.getElementById("login-screen");
+  const app = document.getElementById("app");
+  const usernameInput = document.getElementById("usernameInput");
+  const joinBtn = document.getElementById("joinBtn");
+
+  // Sidebar
+  const sidebar = document.getElementById("sidebar");
+  // const closeSidebarBtn = document.getElementById("closeSidebarBtn"); // Removed
+  const usersPanel = document.getElementById("usersPanel");
+  const usersListEl = document.getElementById("usersList");
+
+  // Main Views
+  const placeholderView = document.getElementById("placeholder-view");
+  const openSidebarBtn = document.getElementById("openSidebarBtn");
+  const chatInterface = document.getElementById("chat-interface");
+  const videoInterface = document.getElementById("video-interface");
+
+  // User Identity
+  const currentUserDisplay = document.getElementById("currentUserDisplay");
+  const myUserNameDisplay = document.getElementById("myUserNameDisplay");
+  const logoutBtn = document.getElementById("logoutBtn");
+
+  // Main Chat Interface
+  const chatUserName = document.getElementById("chatUserName");
+  const returnToCallBtn = document.getElementById("returnToCallBtn");
+  const startAudioCallBtn = document.getElementById("startAudioCallBtn");
+  const startVideoCallBtn = document.getElementById("startVideoCallBtn");
+  const mainMessages = document.getElementById("mainMessages");
+  const mainChatInput = document.getElementById("mainChatInput");
+  const mainSendBtn = document.getElementById("mainSendBtn");
+
+  // Call Status & Timer
+  const callStatusBar = document.getElementById("call-status-bar");
+  const callTimerEl = document.getElementById("call-timer");
+  let callStartTime = null;
+  let callTimerInterval = null;
+
+  // Video Interface
   const localVideo = document.getElementById("localVideo");
   const remoteVideo = document.getElementById("remoteVideo");
-  const messages = document.getElementById("messages");
-  const usersListEl = document.getElementById("usersList");
-  const startBtn = document.getElementById("startCallBtn");
-  const sendBtn = document.getElementById("sendBtn");
-  const chatInput = document.getElementById("chatInput");
-  const answerControls = document.getElementById("answerControls");
+  const remoteLabel = document.getElementById("remoteLabel");
+  const audioOnlyPlaceholder = document.getElementById("audioOnlyPlaceholder");
+  const localAudioPlaceholder = document.getElementById(
+    "localAudioPlaceholder"
+  );
+  const remoteAudioLabel = document.getElementById("remoteAudioLabel");
+
+  // Controls
+  const controlsBar = document.getElementById("controls-bar");
+  const muteBtn = document.getElementById("muteBtn");
+  const videoBtn = document.getElementById("videoBtn");
+  const toChatBtn = document.getElementById("toChatBtn");
+  const hangupBtn = document.getElementById("hangupBtn");
+  const backToUsersBtn = document.getElementById("backToUsersBtn");
+
+  // Incoming Call
+  const incomingModal = document.getElementById("incoming-call-modal");
+  const callerNameEl = document.getElementById("caller-name");
   const answerCallBtn = document.getElementById("answerCallBtn");
   const rejectCallBtn = document.getElementById("rejectCallBtn");
-  const hangupBtn = document.getElementById("hangupBtn");
-  const muteAudioBtn = document.getElementById("muteBtn");
-  const muteVideoBtn = document.getElementById("videoBtn");
+
   const remoteRingtoneElement = document.getElementById("remoteRingtone");
+  const toastContainer = document.getElementById("toast-container");
 
-  // Helper to add messages to chat area
+  // --- UI State Management ---
 
-  function addMessage(text, className = "system") {
-    const div = document.createElement("div");
-    div.className = "msg " + className;
-    div.textContent = text;
-    messages.appendChild(div);
-    messages.scrollTop = messages.scrollHeight;
-  }
+  function switchView(viewId) {
+    [placeholderView, chatInterface, videoInterface].forEach((el) =>
+      el.classList.add("hidden")
+    );
+    document.getElementById(viewId).classList.remove("hidden");
 
-  // WebSocket setup
-  const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const wsUrl = `${wsProtocol}://${window.location.host}`;
-  ws = new WebSocket(wsUrl);
-
-  const params = new URLSearchParams(window.location.search);
-  const turn = params.get("turn");
-  const turnUser = params.get("turnUser");
-  const turnPass = params.get("turnPass");
-  if (turn && turnUser && turnPass) {
-    config.iceServers.push({
-      urls: turn,
-      username: turnUser,
-      credential: turnPass,
-    });
-  }
-  ws.onopen = () => {
-    myUserName = prompt("Enter your name:") || "Anonymous";
-    addMessage("Connected to signaling server", "system");
-
-    ws.send(JSON.stringify({ type: "join", username: myUserName }));
-  };
-
-  ws.onmessage = async (event) => {
-    console.log("WebSocket message:", event.data);
-
-    const data = JSON.parse(event.data);
-
-    switch (data.type) {
-      case "welcome":
-        addMessage(data.message, "system");
-        break;
-      case "onlineUsers":
-        updateUserList(data.users);
-        break;
-      case "offer":
-        console.log("Received offer:", data);
-        await handleOffer(data);
-        break;
-      case "answer":
-        handleAnswer(data);
-        break;
-      case "reject":
-        handleReject(data);
-        break;
-      case "ice":
-        handleIceCandidate(data);
-        break;
-
-      case "hangup":
-        handleHangup(data);
-        break;
-      // Handle other message types (offer, answer, ice) here
-      default:
-        console.log("Unknown message type:", data.type);
-        break;
+    // Manage Controls Visibility
+    if (viewId === "video-interface") {
+      controlsBar.classList.remove("hidden");
+    } else {
+      controlsBar.classList.add("hidden");
     }
-  };
 
-  ws.onerror = (err) => {
-    console.error("WebSocket error:", err);
-    addMessage("Connection error: " + err, "system");
-  };
+    // Manage Return to Call Button
+    if (viewId === "chat-interface" && isCallActive) {
+      returnToCallBtn.classList.remove("hidden");
+    } else {
+      returnToCallBtn.classList.add("hidden");
+    }
+  }
 
-  ws.onclose = () => {
-    console.log("WebSocket closed");
-    addMessage("Disconnected from server", "system");
-  };
+  // Sidebar Tab logic removed - Sidebar is always Users
 
-  // Helper to list users in UI
+  if (backToUsersBtn) {
+    backToUsersBtn.onclick = () => {
+      sidebar.classList.remove("closed");
+    };
+  }
+
+  if (openSidebarBtn) {
+    openSidebarBtn.onclick = () => {
+      sidebar.classList.remove("closed");
+    };
+  }
+
+  /*
+  if (closeSidebarBtn) {
+     closeSidebarBtn.onclick = () => sidebar.classList.add("closed");
+  }
+  */
+
+  // --- Helper Functions ---
+
+  function showToast(message, type = "info") {
+    const toast = document.createElement("div");
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      toast.style.transform = "translateY(-10px)"; // Slide up on exit
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  }
+
+  function addMessage(text, className = "system", fromUser = null) {
+    const createMsg = (container) => {
+      if (!container) return;
+      const div = document.createElement("div");
+      div.className = "msg " + className;
+      if (fromUser && className === "other") {
+        div.innerHTML = `<strong>${fromUser}</strong><br>${text}`;
+      } else {
+        div.textContent = text;
+      }
+      container.appendChild(div);
+
+      // Auto-scroll
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight;
+      });
+    };
+
+    // Add to chat container
+    createMsg(mainMessages);
+  }
+
+  // --- Timer Logic ---
+
+  function startCallTimer() {
+    stopCallTimer(); // Reset if exists
+    callStartTime = Date.now();
+    callStatusBar.classList.remove("hidden");
+    callTimerEl.textContent = "00:00";
+
+    callTimerInterval = setInterval(() => {
+      const now = Date.now();
+      const diff = now - callStartTime;
+      const seconds = Math.floor((diff / 1000) % 60);
+      const minutes = Math.floor((diff / (1000 * 60)) % 60);
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+
+      const fmt = (n) => (n < 10 ? "0" + n : n);
+
+      if (hours > 0) {
+        callTimerEl.textContent = `${fmt(hours)}:${fmt(minutes)}:${fmt(
+          seconds
+        )}`;
+      } else {
+        callTimerEl.textContent = `${fmt(minutes)}:${fmt(seconds)}`;
+      }
+    }, 1000);
+  }
+
+  function stopCallTimer() {
+    if (callTimerInterval) {
+      clearInterval(callTimerInterval);
+      callTimerInterval = null;
+    }
+    callStartTime = null;
+    callStatusBar.classList.add("hidden");
+  }
+
+  // --- Core Logic ---
+
+  // Check for persisted user
+  const savedUser = localStorage.getItem("peers_username");
+  if (savedUser) {
+    myUserName = savedUser;
+    initWebSocket();
+    loginScreen.classList.add("hidden");
+    app.classList.remove("hidden");
+    updateUserIdentity();
+  }
+
+  joinBtn.addEventListener("click", () => {
+    const name = usernameInput.value.trim();
+    if (!name) {
+      showToast("Please enter your name", "danger");
+      return;
+    }
+    myUserName = name;
+    localStorage.setItem("peers_username", name);
+    initWebSocket();
+    loginScreen.classList.add("hidden");
+    app.classList.remove("hidden");
+    updateUserIdentity();
+  });
+
+  if (logoutBtn) {
+    logoutBtn.onclick = () => {
+      localStorage.removeItem("peers_username");
+      window.location.reload();
+    };
+  }
+
+  function updateUserIdentity() {
+    if (myUserNameDisplay) {
+      myUserNameDisplay.textContent = myUserName;
+      currentUserDisplay.classList.remove("hidden");
+    }
+    if (logoutBtn) {
+      logoutBtn.classList.remove("hidden");
+    }
+  }
+
+  usernameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") joinBtn.click();
+  });
+
+  function initWebSocket() {
+    const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const wsUrl = `${wsProtocol}://${window.location.host}`;
+    ws = new WebSocket(wsUrl);
+
+    const params = new URLSearchParams(window.location.search);
+    const turn = params.get("turn");
+    const turnUser = params.get("turnUser");
+    const turnPass = params.get("turnPass");
+    if (turn && turnUser && turnPass) {
+      config.iceServers.push({
+        urls: turn,
+        username: turnUser,
+        credential: turnPass,
+      });
+    }
+
+    ws.onopen = () => {
+      showToast("Connected to server", "success");
+      ws.send(JSON.stringify({ type: "join", username: myUserName }));
+    };
+
+    ws.onmessage = async (event) => {
+      const data = JSON.parse(event.data);
+      switch (data.type) {
+        case "welcome":
+          addMessage(data.message, "system");
+          break;
+        case "onlineUsers":
+          updateUserList(data.users);
+          break;
+        case "offer":
+          await handleOffer(data);
+          break;
+        case "answer":
+          handleAnswer(data);
+          break;
+        case "reject":
+          handleReject(data);
+          break;
+        case "ice":
+          handleIceCandidate(data);
+          break;
+        case "hangup":
+          handleHangup(data);
+          break;
+        case "chat":
+          if (data.from !== selectedUser) {
+            showToast(`New message from ${data.from}`, "info");
+          }
+          // Only show in chat if it's from the selected user or we want global chat
+          // For now, let's just append to chat log
+          addMessage(data.text, "other", data.from);
+          break;
+        default:
+          console.log("Unknown message:", data.type);
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error("WebSocket error:", err);
+      showToast("Connection error", "danger");
+    };
+
+    ws.onclose = () => {
+      showToast("Disconnected from server", "danger");
+    };
+  }
+
   function updateUserList(usernames) {
     usersListEl.innerHTML = "";
     usernames.forEach((name) => {
@@ -114,115 +316,69 @@ document.addEventListener("DOMContentLoaded", () => {
       li.textContent = name;
       li.onclick = () => {
         selectedUser = name;
-        addMessage(`Selected ${name} to call`, "system");
+        chatUserName.textContent = name;
+        // Switch to Chat Interface
+        switchView("chat-interface");
+        // Hide sidebar on mobile
+        sidebar.classList.add("closed");
+        // Clear chat or keep history? keeping history for now (global buffer)
+        // Ideally we filter by user, but let's keep it simple
+        showToast(`Chatting with ${name}`, "info");
       };
       usersListEl.appendChild(li);
     });
   }
 
-  // Media
-  async function startMedia() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error("getUserMedia not supported or insecure origin");
+  // --- Call Logic ---
+
+  async function startMedia(type = "video") {
+    try {
+      const constraints = {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: type === "video" ? true : false,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      return stream;
+    } catch (err) {
+      showToast("Camera/Mic access denied", "danger");
+      throw err;
     }
-
-    const localStream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
-
-    return localStream;
   }
 
-  // Create RTCPeerConnection
-  function createPeerConnection(someLocalStream, isCaller = false) {
-    peerConnection = new RTCPeerConnection(config);
+  startAudioCallBtn.onclick = () => startCall("audio");
+  startVideoCallBtn.onclick = () => startCall("video");
 
-    // attach local tracks
-    someLocalStream
-      .getTracks()
-      .forEach((track) => peerConnection.addTrack(track, someLocalStream));
+  async function startCall(type) {
+    if (!selectedUser) return;
 
-    peerConnection.ontrack = (e) => {
-      remoteVideo.srcObject = e.streams[0];
-      const p = remoteVideo.play();
-      if (p && typeof p.then === "function") p.catch(() => {});
-    };
-
-    peerConnection.onicecandidate = (e) => {
-      if (e.candidate) {
-        if (!selectedUser) {
-          console.warn("No selectedUser to send ICE to");
-          return;
-        }
-        ws.send(
-          JSON.stringify({
-            type: "ice",
-            ice: e.candidate,
-            to: selectedUser,
-            from: myUserName,
-          })
-        );
-      }
-    };
-
-    peerConnection.onconnectionstatechange = () => {
-      const s = peerConnection.connectionState;
-      if (s === "failed" || s === "disconnected" || s === "closed") {
-        endCall(false);
-      }
-    };
-    peerConnection.oniceconnectionstatechange = () => {
-      const s = peerConnection.iceConnectionState;
-      if (s === "failed" || s === "disconnected") {
-        endCall(false);
-      }
-    };
-
-    // Only create data channel if caller
-    if (isCaller) {
-      dataChannel = peerConnection.createDataChannel("chat");
-      setupDataChannel(dataChannel);
-    }
-
-    // Always listen for remote data channel
-    peerConnection.ondatachannel = (event) => {
-      dataChannel = event.channel;
-      setupDataChannel(dataChannel);
-    };
-  }
-
-  function setupDataChannel(channel) {
-    channel.onopen = () => {
-      console.log("DataChannel ready");
-      addMessage("Data channel open", "system");
-    };
-    channel.onmessage = (e) => addMessage(e.data, "other");
-    channel.onerror = (e) => console.error("DataChannel error:", e);
-  }
-
-  // Start a call to selectedUser
-  async function startCall() {
-    if (!selectedUser) {
-      addMessage("No user selected to call", "system");
+    // Prevent concurrent calls
+    if (isCallActive) {
+      showToast("You are already in a call!", "danger");
       return;
     }
 
+    callType = type;
+    isCallActive = true; // Set active state
+
     try {
-      const localStream = await startMedia();
-      localVideo.srcObject = localStream;
-      const p = localVideo.play();
-      if (p && typeof p.then === "function") p.catch(() => {});
-      createPeerConnection(localStream, true);
+      const stream = await startMedia(type);
+      localVideo.srcObject = stream;
+      localVideo.play().catch(() => {});
+
+      // Ensure UI mute button is reset
+      muteBtn.classList.remove("danger");
+
+      createPeerConnection(stream, true);
 
       const offer = await peerConnection.createOffer({
         offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-        usernameFragment: myUserName,
+        offerToReceiveVideo: true, // Always offer video capability?
+        // If we want audio-only, we can set offerToReceiveVideo: false
+        // But usually better to offer and just not send track
       });
       await peerConnection.setLocalDescription(offer);
 
@@ -232,87 +388,152 @@ document.addEventListener("DOMContentLoaded", () => {
           to: selectedUser,
           from: myUserName,
           offer,
-          myUserName,
+          callType, // Custom field to hint receiver
         })
       );
+
+      // Switch UI
+      switchView("video-interface");
+      // Sidebar auto-switch removed
+      updateCallUI(type);
+
       addMessage(`Calling ${selectedUser}...`, "system");
+      remoteLabel.textContent = `Calling ${selectedUser}...`;
     } catch (err) {
-      console.error("startCall failed:", err);
-      addMessage("Start call failed: " + (err.message || err), "system");
+      console.error(err);
     }
   }
 
-  // Handle incoming offer
+  function updateCallUI(type) {
+    if (type === "audio") {
+      // Remote
+      audioOnlyPlaceholder.classList.remove("hidden");
+      remoteVideo.classList.add("hidden");
+      remoteAudioLabel.textContent = selectedUser;
+
+      // Local
+      localVideo.classList.add("hidden");
+      localAudioPlaceholder.classList.remove("hidden");
+
+      // Controls
+      videoBtn.classList.add("hidden");
+    } else {
+      // Remote
+      audioOnlyPlaceholder.classList.add("hidden");
+      remoteVideo.classList.remove("hidden");
+
+      // Local
+      localVideo.classList.remove("hidden");
+      localAudioPlaceholder.classList.add("hidden");
+
+      // Controls
+      videoBtn.classList.remove("hidden");
+    }
+  }
+
+  // Handle Offer
   async function handleOffer(data) {
-    console.log("Handling offer from", data.from);
+    // Prevent receiving calls if already in one
+    if (isCallActive) {
+      // Auto-reject with busy signal
+      ws.send(
+        JSON.stringify({
+          type: "reject",
+          to: data.from,
+          from: myUserName,
+          reason: "busy",
+        })
+      );
+      return;
+    }
+
     selectedUser = data.from;
+    const incomingCallType = data.callType || "video";
+    callType = incomingCallType;
 
-    // Display answer controls
-    answerControls.style.display = "block";
+    callerNameEl.textContent = `${data.from} (${
+      incomingCallType === "audio" ? "Voice" : "Video"
+    } Call)`;
 
-    remoteRingtoneElement.muted = false;
+    // Show Modal
+    incomingModal.classList.remove("hidden");
+
+    // Play Ringtone
+    try {
+      remoteRingtoneElement.volume = 1.0;
+      remoteRingtoneElement.muted = false;
+      await remoteRingtoneElement.play();
+    } catch (e) {
+      console.warn("Ringtone playback failed (autoplay policy?):", e);
+    }
+
+    // If Video Call, start preview immediately
+    if (incomingCallType === "video") {
+      try {
+        // Switch to video view to show preview
+        switchView("video-interface");
+        updateCallUI("video");
+
+        const stream = await startMedia("video");
+        localVideo.srcObject = stream;
+        localVideo.play().catch(() => {});
+      } catch (err) {
+        console.error("Failed to start video preview", err);
+      }
+    }
 
     answerCallBtn.onclick = async () => {
+      incomingModal.classList.add("hidden");
       remoteRingtoneElement.muted = true;
-      answerControls.style.display = "none";
+      remoteRingtoneElement.pause();
       await acceptCall(data);
     };
 
-    rejectCallBtn.onclick = async () => {
+    rejectCallBtn.onclick = () => {
+      incomingModal.classList.add("hidden");
       remoteRingtoneElement.muted = true;
-      answerControls.style.display = "none";
-
-      await rejectCall(data);
+      remoteRingtoneElement.pause();
+      rejectCall(data);
     };
   }
 
-  // Handle answer to our offer
-  async function handleAnswer(data) {
-    console.log("Handling answer from", data);
-    selectedUser = data.from;
-    try {
-      await peerConnection.setRemoteDescription(
-        new RTCSessionDescription(data.answer)
-      );
-      while (pendingRemoteCandidates.length) {
-        const c = pendingRemoteCandidates.shift();
-        await peerConnection.addIceCandidate(c);
-      }
-      addMessage(`Call established with ${data.from}`, "system");
-    } catch (err) {
-      console.error("handleAnswer failed:", err);
-      addMessage("Handle answer failed: " + (err.message || err), "system");
-    }
-  }
-
-  async function handleHangup(data) {
-    console.log("Handling hangup from", data.from);
-    addMessage(`Call ended by ${data.from}`, "system");
-    endCall(false);
-  }
-
   async function acceptCall(data) {
-    console.log("Accepting call from", data.from);
-
-    // Stop ringtone
-    remoteRingtoneElement.muted = true;
-
     try {
-      const localStream = await startMedia();
+      showToast("Connecting...", "info");
+      isCallActive = true; // Set active state
 
-      localVideo.srcObject = localStream;
-      const p = localVideo.play();
+      let stream = localVideo.srcObject;
 
-      if (p && typeof p.then === "function") p.catch(() => {});
+      // If we don't have a stream (Audio call) or need to upgrade/match type
+      if (!stream) {
+        try {
+          stream = await startMedia(callType);
+          localVideo.srcObject = stream;
+          // Only play if it's video, or if we want to ensure audio track is active?
+          // localVideo is muted, so playing it is fine.
+          await localVideo.play().catch(() => {});
+        } catch (mediaErr) {
+          console.error("Failed to start media in acceptCall:", mediaErr);
+          showToast("Could not access Camera/Mic", "danger");
+          return; // Abort if media fails
+        }
+      }
 
-      createPeerConnection(localStream, false);
+      // Switch UI BEFORE creating peer connection to ensure user sees something
+      switchView("video-interface");
+      updateCallUI(callType);
+
+      // Ensure UI mute button is reset
+      muteBtn.classList.remove("danger");
+
+      createPeerConnection(stream, false);
 
       await peerConnection.setRemoteDescription(
         new RTCSessionDescription(data.offer)
       );
+
       while (pendingRemoteCandidates.length) {
-        const c = pendingRemoteCandidates.shift();
-        await peerConnection.addIceCandidate(c);
+        await peerConnection.addIceCandidate(pendingRemoteCandidates.shift());
       }
 
       const answer = await peerConnection.createAnswer();
@@ -326,147 +547,219 @@ document.addEventListener("DOMContentLoaded", () => {
           answer,
         })
       );
-      addMessage(`Call accepted, connected to ${data.from}`, "system");
+
+      // switchView("video-interface"); // Moved up
+      // switchSidebarTab("chat");
+      // updateCallUI(callType); // Moved up
+
+      // Start Timer
+      startCallTimer();
+
+      addMessage(`Connected to ${data.from}`, "system");
+      remoteLabel.textContent = data.from;
     } catch (err) {
-      console.error("acceptCall failed:", err);
-      addMessage("Accept call failed: " + (err.message || err), "system");
+      console.error("Error in acceptCall:", err);
+      showToast("Failed to accept call: " + err.message, "danger");
+      // Clean up if failed
+      endCall(false);
     }
   }
 
-  async function rejectCall(data) {
-    console.log("Rejecting call from", data.from);
-
-    // Stop ringtone
-    remoteRingtoneElement.muted = true;
-
+  function rejectCall(data) {
     ws.send(
-      JSON.stringify({
-        type: "reject",
-        to: data.from,
-        from: myUserName,
-      })
+      JSON.stringify({ type: "reject", to: data.from, from: myUserName })
     );
-    addMessage(`Call from ${data.from} rejected`, "system");
+    showToast("Call declined", "info");
+
+    // Stop preview tracks if any
+    if (localVideo.srcObject) {
+      localVideo.srcObject.getTracks().forEach((t) => t.stop());
+      localVideo.srcObject = null;
+    }
+
+    // Reset view to chat
+    switchView("chat-interface");
+    selectedUser = null; // Or keep? User might want to chat.
+    // If we reject, we probably want to stay on the chat screen with that user or go back.
+    // Since we set selectedUser in handleOffer, let's keep it so they can chat.
   }
 
-  // Handle call rejection
-  function handleReject(data) {
-    addMessage(`Your call to ${data.from} was rejected`, "system");
-    // Clean up peer connection if needed
-    if (peerConnection) {
-      peerConnection.close();
-      peerConnection = null;
+  async function handleAnswer(data) {
+    try {
+      await peerConnection.setRemoteDescription(
+        new RTCSessionDescription(data.answer)
+      );
+      while (pendingRemoteCandidates.length) {
+        await peerConnection.addIceCandidate(pendingRemoteCandidates.shift());
+      }
+      // Start Timer
+      startCallTimer();
+
+      showToast("Call established", "success");
+      remoteLabel.textContent = selectedUser;
+    } catch (err) {
+      console.error(err);
     }
   }
 
-  // Handle incoming ICE candidate
-  async function handleIceCandidate(data) {
-    // Start peer connection if not already started
-    if (!peerConnection) {
-      console.warn("PeerConnection not established yet");
+  function handleReject(data) {
+    showToast(`${data.from} rejected the call`, "danger");
+    endCall(false);
+  }
+
+  function handleHangup(data) {
+    // Check if it's the current caller to stop ringing
+    if (!isCallActive && incomingModal.classList.contains("hidden") === false) {
+      // Incoming call was cancelled before answering
+      incomingModal.classList.add("hidden");
+      remoteRingtoneElement.muted = true;
+      remoteRingtoneElement.pause();
+      addMessage(`Missed call from ${data.from}`, "system");
       return;
     }
 
+    showToast(`${data.from} ended the call`, "info");
+    endCall(false);
+  }
+
+  async function handleIceCandidate(data) {
+    if (!peerConnection) return;
     try {
       const candidate = new RTCIceCandidate(data.ice);
-      if (peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
+      if (peerConnection.remoteDescription) {
         await peerConnection.addIceCandidate(candidate);
       } else {
         pendingRemoteCandidates.push(candidate);
       }
     } catch (err) {
-      console.error("handleIceCandidate failed:", err);
-      addMessage(
-        "Handle ICE candidate failed: " + (err.message || err),
-        "system"
-      );
+      console.error(err);
     }
   }
 
-  // Chat send
-  function sendChat() {
-    const text = chatInput.value;
-    if (!text || !dataChannel || dataChannel.readyState !== "open") {
-      console.warn("Cannot send: no data channel or not open");
-      return;
-    }
-    dataChannel.send(text);
-    addMessage(text, "me");
-    chatInput.value = "";
-  }
+  function createPeerConnection(stream, isCaller = false) {
+    peerConnection = new RTCPeerConnection(config);
+    stream
+      .getTracks()
+      .forEach((track) => peerConnection.addTrack(track, stream));
 
-  // Attach buttons (no inline onclick needed)
-  if (startBtn) startBtn.addEventListener("click", startCall);
-  if (sendBtn) sendBtn.addEventListener("click", sendChat);
+    peerConnection.ontrack = (e) => {
+      remoteVideo.srcObject = e.streams[0];
+      remoteVideo.play().catch(() => {});
+    };
+
+    peerConnection.onicecandidate = (e) => {
+      if (e.candidate && selectedUser) {
+        ws.send(
+          JSON.stringify({
+            type: "ice",
+            ice: e.candidate,
+            to: selectedUser,
+            from: myUserName,
+          })
+        );
+      }
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+      const s = peerConnection.connectionState;
+      if (["failed", "disconnected", "closed"].includes(s)) {
+        endCall(false);
+      }
+    };
+  }
 
   function endCall(sendSignal = true) {
+    isCallActive = false; // Reset active state
+    stopCallTimer(); // Stop timer
+
     if (peerConnection) {
-      peerConnection.getSenders().forEach((s) => {
-        try {
-          s.track && s.track.stop();
-        } catch (_) {}
-      });
-      try {
-        peerConnection.close();
-      } catch (_) {}
+      peerConnection.close();
       peerConnection = null;
     }
-    if (localVideo && localVideo.srcObject) {
-      try {
-        localVideo.srcObject.getTracks().forEach((t) => t.stop());
-      } catch (_) {}
+    if (localVideo.srcObject) {
+      localVideo.srcObject.getTracks().forEach((t) => t.stop());
       localVideo.srcObject = null;
     }
-    if (remoteVideo) {
-      remoteVideo.srcObject = null;
-    }
-    if (sendSignal && selectedUser && ws && ws.readyState === ws.OPEN) {
+    remoteVideo.srcObject = null;
+
+    if (sendSignal && selectedUser && ws.readyState === WebSocket.OPEN) {
       ws.send(
-        JSON.stringify({
-          type: "hangup",
-          to: selectedUser,
-          from: myUserName,
-        })
+        JSON.stringify({ type: "hangup", to: selectedUser, from: myUserName })
       );
     }
+
+    // Reset UI
+    switchView("chat-interface"); // Go back to chat
+    // Optional: Go back to users? or stay on chat
+    // selectedUser = null; // Keep selected user to continue chatting
+    pendingRemoteCandidates = [];
   }
 
-  if (hangupBtn)
-    hangupBtn.addEventListener("click", () => {
-      endCall(true);
-      addMessage("Call ended", "system");
-    });
+  // --- Chat Logic ---
 
-  if (muteAudioBtn)
-    muteAudioBtn.addEventListener("click", () => {
-      const stream = localVideo && localVideo.srcObject;
-      if (!stream) return;
-      stream.getAudioTracks().forEach((t) => (t.enabled = !t.enabled));
-      addMessage("Toggled microphone", "system");
-    });
+  function sendChat(inputEl) {
+    const text = inputEl.value.trim();
+    if (!text || !selectedUser) return;
 
-  if (muteVideoBtn)
-    muteVideoBtn.addEventListener("click", () => {
-      const stream = localVideo && localVideo.srcObject;
-      if (!stream) return;
-      stream.getVideoTracks().forEach((t) => (t.enabled = !t.enabled));
-      addMessage("Toggled camera", "system");
-    });
+    // Send via WebSocket
+    ws.send(
+      JSON.stringify({
+        type: "chat",
+        to: selectedUser,
+        from: myUserName,
+        text: text,
+      })
+    );
 
-  if (chatInput) {
-    chatInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        sendChat();
+    addMessage(text, "me");
+    inputEl.value = "";
+  }
+
+  mainSendBtn.onclick = () => sendChat(mainChatInput);
+  mainChatInput.onkeydown = (e) => {
+    if (e.key === "Enter") sendChat(mainChatInput);
+  };
+
+  // Sidebar chat logic removed
+
+  // --- Control Buttons ---
+
+  if (toChatBtn) {
+    toChatBtn.onclick = () => {
+      switchView("chat-interface");
+    };
+  }
+
+  if (returnToCallBtn) {
+    returnToCallBtn.onclick = () => {
+      switchView("video-interface");
+    };
+  }
+
+  muteBtn.onclick = () => {
+    const stream = localVideo.srcObject;
+    if (stream) {
+      const track = stream.getAudioTracks()[0];
+      if (track) {
+        track.enabled = !track.enabled;
+        muteBtn.classList.toggle("danger", !track.enabled);
       }
-    });
-  }
+    }
+  };
 
-  // Expose for debugging (optional)
-  window.__webrtc = {
-    startCall,
-    ws,
-    getSelectedUser: () => selectedUser,
-    setSelectedUser: (u) => (selectedUser = u),
+  videoBtn.onclick = () => {
+    const stream = localVideo.srcObject;
+    if (stream) {
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        track.enabled = !track.enabled;
+        videoBtn.classList.toggle("danger", !track.enabled);
+      }
+    }
+  };
+
+  hangupBtn.onclick = () => {
+    endCall(true);
+    showToast("Call ended", "info");
   };
 });

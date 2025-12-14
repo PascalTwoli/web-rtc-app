@@ -1,151 +1,900 @@
+:root {
+  --bg-color: #121212;
+  --surface-color: #1e1e1e;
+  --surface-light: #2c2c2c;
+  --primary-color: #4a90e2;
+  --primary-hover: #357abd;
+  --danger-color: #e74c3c;
+  --danger-hover: #c0392b;
+  --success-color: #2ecc71;
+  --text-color: #ffffff;
+  --text-secondary: #aaaaaa;
+  --border-radius: 12px;
+  --spacing: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  padding: 10px;
-  font-family: Arial, sans-serif;
-  background: #111;
-  color: #fff;
-  display: flex;
-  flex-direction: column;
-  /* height: 100vh; */
-}
-
-header {
-  padding: 10px;
-  text-align: center;
-  background: #222;
-  font-size: 20px;
-  font-weight: bold;
-}
-
-#container {
-  flex: 1;
-  display: flex;
-  flex-direction: row;
+  padding: 0;
+  font-family: "Inter", sans-serif;
+  background: var(--bg-color);
+  color: var(--text-color);
+  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
-/* Video area */
-#video-area {
-  flex: 2;
+.hidden {
+  display: none !important;
+}
+
+.mobile-only {
+  display: none;
+}
+
+.mobile-small {
+  display: none;
+}
+
+/* Login Screen */
+#login-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  background: var(--bg-color);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #000;
-  padding: 10px;
+  z-index: 1000;
 }
 
-video {
+.login-box {
+  background: var(--surface-color);
+  padding: 40px;
+  border-radius: var(--border-radius);
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   width: 90%;
-  max-height: 45vh;
-  background: #000;
-  border: 2px solid #444;
-  border-radius: 6px;
-  margin-bottom: 10px;
+  max-width: 400px;
 }
 
-/* Chat area */
-#chat-area {
-  flex: 1;
-  background: #1c1c1c;
+.login-box h1 {
+  margin-bottom: 10px;
+  font-size: 24px;
+}
+
+.login-box p {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+.login-box input {
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 16px;
+  background: var(--surface-light);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: white;
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.login-box input:focus {
+  border-color: var(--primary-color);
+}
+
+.login-box button {
+  width: 100%;
+  padding: 12px;
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.login-box button:hover {
+  background: var(--primary-hover);
+}
+
+/* App Layout */
+#app {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* Sidebar */
+#sidebar {
+  width: 320px;
+  background: var(--surface-color);
+  border-right: 1px solid #333;
   display: flex;
   flex-direction: column;
-  border-left: 2px solid #333;
+  flex-shrink: 0;
+  z-index: 50;
+  /* Default transform handled in responsive section */
 }
 
-#messages {
-  flex: 1;
-  padding: 10px;
-  overflow-y: auto;
-  font-size: 14px;
-}
-
-.msg {
-  margin-bottom: 10px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  max-width: 75%;
-  line-height: 1.4;
-}
-
-.me {
-  background: #4a90e2;
-  align-self: flex-end;
-}
-
-.other {
-  background: #333;
-  align-self: flex-start;
-}
-
-#chat-input-area {
+/* ... headers ... */
+.sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid #333;
   display: flex;
-  padding: 10px;
-  background: #222;
+  align-items: center;
+  justify-content: space-between;
 }
 
-#chatInput {
+.header-info h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.current-user-display {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--success-color);
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Sidebar Tabs removed */
+
+.sidebar-section {
+  padding: 0; /* Reset */
   flex: 1;
-  padding: 8px;
-  border: none;
-  border-radius: 4px;
-  margin-right: 10px;
-  outline: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-#startCallBtn {
-  margin: 10px;
-  padding: 10px 20px;
-  background: #27ae60;
-  border: none;
-  border-radius: 4px;
-  color: white;
-  font-weight: bold;
-  cursor: pointer;
+/* Hide scrollbars but keep functionality */
+.sidebar-section,
+#usersList,
+.messages-container {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
 }
 
-#startCallBtn:hover {
-  background: #219150;
+.sidebar-section::-webkit-scrollbar,
+#usersList::-webkit-scrollbar,
+.messages-container::-webkit-scrollbar {
+  display: none;
 }
 
-button {
-  padding: 8px 16px;
-  background: #4a90e2;
-  border: none;
-  border-radius: 4px;
-  color: white;
-  font-weight: bold;
-  cursor: pointer;
-}
-
-#controls {
+/* Users List */
+#usersList {
+  list-style: none;
   padding: 10px;
-  text-align: right;
-  background: #222;
-}
-
-@media (max-width: 800px) {
-  #container {
-    flex-direction: column;
-  }
-  #chat-area {
-    flex: none;
-    height: 40vh;
-  }
-}
-
-#usersPanel {
-  border: 1px solid #ccc;
-  padding: 10px;
-  max-width: 200px;
+  margin: 0;
+  overflow-y: auto;
 }
 
 #usersList li {
+  padding: 16px; /* Larger touch target */
+  background: var(--surface-light);
+  margin-bottom: 10px;
+  border-radius: 12px;
   cursor: pointer;
-  padding: 6px;
-  border-bottom: 1px solid #eee;
+  transition: background 0.2s, transform 0.1s;
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+#usersList li:active {
+  transform: scale(0.98);
 }
 
 #usersList li:hover {
-  background: #f0f0f0;
+  background: #3a3a3a;
+}
+
+#usersList li::before {
+  content: "";
+  display: block;
+  width: 8px;
+  height: 8px;
+  background: var(--success-color);
+  border-radius: 50%;
+  margin-right: 10px;
+}
+
+/* Chat Areas (Sidebar & Main) */
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Smooth scrolling */
+  scroll-behavior: smooth;
+}
+
+.msg {
+  padding: 10px 16px;
+  border-radius: 18px;
+  max-width: 80%;
+  font-size: 15px;
+  line-height: 1.5;
+  word-wrap: break-word;
+  position: relative;
+}
+
+.msg.system {
+  align-self: center;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+  border-radius: 12px;
+  padding: 6px 12px;
+  margin: 8px 0;
+}
+
+.msg.me {
+  align-self: flex-end;
+  background: var(--primary-color);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.msg.other {
+  align-self: flex-start;
+  background: var(--surface-light);
+  color: white;
+  border-bottom-left-radius: 4px;
+}
+
+.chat-input-area {
+  display: flex;
+  padding: 12px;
+  gap: 8px;
+  border-top: 1px solid #333;
+  background: var(--surface-color);
+}
+
+.chat-input-area input {
+  flex: 1;
+  padding: 12px;
+  background: var(--surface-light);
+  border: none;
+  border-radius: 24px;
+  color: white;
+  outline: none;
+  font-size: 16px; /* Prevents zoom on mobile */
+}
+
+.send-btn {
+  background: var(--primary-color);
+  border: none;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.send-btn:hover {
+  background: var(--primary-hover);
+}
+
+/* Main Content */
+#main-content {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  padding: 0; /* Remove padding for full layouts */
+  overflow: hidden;
+}
+
+.main-view {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Placeholder View */
+#placeholder-view {
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-color);
+}
+
+.placeholder-content {
+  text-align: center;
+  color: var(--text-secondary);
+  max-width: 300px;
+}
+
+/* Chat Interface (Pre-Call) */
+#chat-interface {
+  background: var(--bg-color);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.chat-header {
+  border-bottom: 1px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 70px; /* Fixed height for consistency */
+  flex-shrink: 0; /* Prevent shrinking */
+  padding: 16px 20px;
+  background: var(--surface-color);
+}
+
+/* Remove the orphaned closing brace if it exists in the original or just overwrite the broken block */
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .chat-header {
+    padding: 10px 16px;
+    height: 60px;
+  }
+}
+
+.chat-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.chat-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.action-btn {
+  background: var(--surface-light);
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.action-btn:hover {
+  background: var(--primary-color);
+}
+
+/* Call Status Bar (Timer) */
+.call-status-bar {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
+  padding: 8px 16px;
+  border-radius: 20px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.call-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#call-status-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+#call-timer {
+  font-size: 16px;
+  font-weight: 600;
+  color: white;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Video Interface */
+#video-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  position: relative;
+  height: 100%;
+  padding: 20px;
+}
+
+.video-wrapper {
+  position: relative;
+  background: #000;
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-wrapper video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.video-label {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.audio-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: white;
+}
+
+.avatar-circle {
+  width: 80px;
+  height: 80px;
+  background: var(--surface-light);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.local {
+  position: absolute;
+  bottom: 100px;
+  right: 20px;
+  width: 240px;
+  height: 160px;
+  z-index: 10;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  border: 2px solid #333;
+}
+
+.remote {
+  width: 100%;
+  height: 100%;
+}
+
+/* Controls Bar */
+#controls-bar {
+  position: absolute;
+  bottom: 30px;
+  /* Safe area inset for modern mobile browsers */
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 20px;
+  background: rgba(30, 30, 30, 0.8);
+  padding: 12px 24px;
+  border-radius: 50px;
+  backdrop-filter: blur(10px);
+  z-index: 20;
+}
+
+.control-btn {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: none;
+  background: var(--surface-light);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.control-btn:hover {
+  background: #444;
+  transform: scale(1.1);
+}
+
+.control-btn.active {
+  background: var(--text-color);
+  color: #000;
+}
+
+.control-btn.danger {
+  background: var(--danger-color);
+}
+
+.control-btn.danger:hover {
+  background: var(--danger-hover);
+}
+
+/* Modal */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fadeIn 0.3s;
+}
+
+.modal-content {
+  background: var(--surface-color);
+  padding: 30px;
+  border-radius: var(--border-radius);
+  text-align: center;
+  width: 300px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.modal-actions button {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.success {
+  background: var(--success-color);
+}
+.danger {
+  background: var(--danger-color);
+}
+
+/* Toasts - Reimagined as Pill Notifications */
+#toast-container {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 2000; /* Highest z-index */
+  pointer-events: none;
+}
+
+.toast {
+  background: rgba(30, 30, 30, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: white;
+  padding: 8px 20px;
+  border-radius: 50px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 14px;
+  font-weight: 500;
+  animation: slideDownFade 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  min-width: auto; /* Allow auto sizing */
+  max-width: 90vw;
+  white-space: nowrap;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Status Indicators for Toasts */
+.toast.success {
+  border-color: rgba(46, 204, 113, 0.5);
+}
+.toast.danger {
+  border-color: rgba(231, 76, 60, 0.5);
+}
+.toast.info {
+  border-color: rgba(74, 144, 226, 0.5);
+}
+
+@keyframes slideDownFade {
+  from {
+    transform: translateY(-20px) scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* Remove old animations */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Mobile Call Overhaul */
+@media (max-width: 768px) {
+  /* Full screen incoming call modal */
+  .modal {
+    background: rgba(0, 0, 0, 0.95);
+    backdrop-filter: blur(20px);
+    z-index: 9999;
+  }
+
+  .modal-content {
+    background: transparent;
+    box-shadow: none;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .modal-content h3 {
+    font-size: 24px;
+    margin-bottom: 10px;
+    font-weight: 300;
+    opacity: 0.8;
+  }
+
+  .modal-content p {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 60px;
+  }
+
+  .modal-actions {
+    width: 100%;
+    justify-content: space-around;
+    padding: 0 40px;
+    gap: 40px;
+  }
+
+  .modal-actions button {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0; /* Hide text */
+    flex: none;
+  }
+
+  /* Add icons to buttons via CSS if text is hidden, or assume icons are inside */
+  /* Since we have text "Answer"/"Decline" inside, we need to fix this in JS or CSS. */
+  /* Let's use ::after content for icons if we hide text */
+
+  .modal-actions button.success::after {
+    content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91'%3E%3C/path%3E%3C/svg%3E");
+    width: 32px;
+    height: 32px;
+    display: block;
+  }
+
+  .modal-actions button.danger::after {
+    content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'%3E%3C/line%3E%3Cline x1='6' y1='6' x2='18' y2='18'%3E%3C/line%3E%3C/svg%3E");
+    width: 32px;
+    height: 32px;
+    display: block;
+  }
+
+  /* Adjust Active Call UI for Mobile */
+  #video-grid {
+    padding: 0;
+    gap: 0;
+  }
+
+  .video-wrapper.local {
+    width: 110px;
+    height: 160px;
+    bottom: calc(100px + env(safe-area-inset-bottom));
+    right: 16px;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    border: none;
+  }
+
+  .call-status-bar {
+    top: calc(10px + env(safe-area-inset-top));
+    background: transparent;
+    backdrop-filter: none;
+    border: none;
+  }
+
+  #call-timer {
+    font-size: 18px;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  }
+
+  #call-status-text {
+    display: none; /* Hide 'Connected' text on mobile to save space */
+  }
+}
+
+/* Responsive (Original) */
+@media (max-width: 768px) {
+  .mobile-only {
+    display: flex !important;
+  }
+
+  .mobile-small {
+    display: flex !important;
+  }
+
+  #app {
+    position: relative; /* Container for absolute sidebar */
+  }
+
+  #sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    height: 100dvh;
+    z-index: 100; /* Above everything */
+    transform: translateX(
+      0
+    ); /* Default visible for simpler logic, or hidden? */
+    /* Let's keep it hidden by default if not open, but logic says it starts open? */
+    /* Actually, user wants "Chat only after selecting". */
+    /* So Sidebar is DEFAULT. Main View is HIDDEN or BEHIND. */
+    transform: translateX(0);
+    transition: transform 0.3s ease-in-out;
+    border-right: none;
+  }
+
+  /* When "open" class is removed (which we used for 'closeSidebarBtn'), 
+     we actually want the sidebar to HIDE if we are viewing chat. 
+     BUT, the previous logic was: Sidebar hidden, toggle opens it.
+     New Logic: Sidebar IS the view. Chat slides in? 
+     Or Sidebar covers everything. */
+
+  /* Let's stick to the previous 'overlay' pattern but invert the default visibility? 
+     No, let's keep it simple: Sidebar is an overlay. 
+     BUT, if sidebar is the 'home', it should be visible initially. */
+
+  #sidebar {
+    transform: translateX(0); /* Visible by default on mobile load? */
+  }
+
+  #sidebar.hidden-mobile {
+    transform: translateX(-100%);
+  }
+
+  /* Wait, the existing class is .open to show it. 
+     Let's change: Sidebar is visible. When we select user, we hide it? 
+     Or better: Chat View covers Sidebar? */
+
+  #sidebar {
+    transform: translateX(0); /* Always visible unless moved */
+    z-index: 50;
+  }
+
+  /* On mobile, Sidebar and Main Content are stacked. 
+     Sidebar z-index 50. Main z-index 40. 
+     To show Main, we move Sidebar away? Or overlay Main? */
+
+  /* Let's try: Sidebar is absolute. It covers Main. */
+  #sidebar {
+    transform: translateX(0);
+  }
+
+  #sidebar.closed {
+    transform: translateX(-100%);
+  }
+
+  #main-content {
+    width: 100%;
+    height: 100%;
+    height: 100dvh;
+    padding: 0; /* Reset for mobile */
+    /* Add padding bottom to avoid overlap with controls if needed */
+  }
+
+  .local {
+    width: 100px;
+    height: 140px; /* Portrait for mobile */
+    bottom: calc(90px + env(safe-area-inset-bottom));
+    right: 10px;
+  }
+
+  #controls-bar {
+    bottom: calc(20px + env(safe-area-inset-bottom));
+    padding: 8px 16px;
+    width: 90%;
+    justify-content: space-around;
+  }
+
+  .control-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Make sure video doesn't break layout */
+  #video-grid {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  /* Chat Interface mobile adjustments */
+  .chat-header {
+    padding: 10px 16px;
+    height: 60px;
+  }
 }
