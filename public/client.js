@@ -35,6 +35,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const myUserNameDisplay = document.getElementById("myUserNameDisplay");
   const logoutBtn = document.getElementById("logoutBtn");
 
+  const localAvatarCircle = document.getElementById("localAvatarCircle");
+  const remoteAvatarCircle = document.getElementById("remoteAvatarCircle");
+
   // Main Chat Interface
   const chatUserName = document.getElementById("chatUserName");
   const returnToCallBtn = document.getElementById("returnToCallBtn");
@@ -73,6 +76,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const callerNameEl = document.getElementById("caller-name");
   const answerCallBtn = document.getElementById("answerCallBtn");
   const rejectCallBtn = document.getElementById("rejectCallBtn");
+
+  // Calling Overlay
+  const callingOverlay = document.getElementById("calling-overlay");
+  const callingText = document.getElementById("calling-text");
+  const cancelCallBtn = document.getElementById("cancelCallBtn");
 
   const remoteRingtoneElement = document.getElementById("remoteRingtone");
   const toastContainer = document.getElementById("toast-container");
@@ -121,6 +129,16 @@ document.addEventListener("DOMContentLoaded", () => {
   */
 
   // --- Helper Functions ---
+
+  function getInitials(name) {
+    if (!name) return "??";
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .substring(0, 2);
+  }
 
   function showToast(message, type = "info") {
     const toast = document.createElement("div");
@@ -233,6 +251,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (logoutBtn) {
       logoutBtn.classList.remove("hidden");
     }
+    // Update Local Avatar Initials
+    if (localAvatarCircle) {
+      localAvatarCircle.textContent = getInitials(myUserName);
+    }
   }
 
   usernameInput.addEventListener("keydown", (e) => {
@@ -284,6 +306,17 @@ document.addEventListener("DOMContentLoaded", () => {
           break;
         case "hangup":
           handleHangup(data);
+          break;
+        case "video-toggle":
+          // Handle remote video toggle
+          if (data.enabled) {
+            audioOnlyPlaceholder.classList.add("hidden");
+          } else {
+            audioOnlyPlaceholder.classList.remove("hidden");
+            if (remoteAudioLabel) remoteAudioLabel.textContent = data.from;
+            if (remoteAvatarCircle)
+              remoteAvatarCircle.textContent = getInitials(data.from);
+          }
           break;
         case "chat":
           if (data.from !== selectedUser) {
@@ -393,11 +426,19 @@ document.addEventListener("DOMContentLoaded", () => {
       );
 
       // Switch UI
-      switchView("video-interface");
+      // switchView("video-interface"); // Removed immediate switch
       // Sidebar auto-switch removed
       updateCallUI(type);
 
-      addMessage(`Calling ${selectedUser}...`, "system");
+      // Show Calling Overlay
+      callingOverlay.classList.remove("hidden");
+      callingText.textContent = `Calling ${selectedUser}...`;
+
+      cancelCallBtn.onclick = () => {
+        endCall(true);
+      };
+
+      // addMessage(`Calling ${selectedUser}...`, "system"); // Optional
       remoteLabel.textContent = `Calling ${selectedUser}...`;
     } catch (err) {
       console.error(err);
@@ -410,10 +451,14 @@ document.addEventListener("DOMContentLoaded", () => {
       audioOnlyPlaceholder.classList.remove("hidden");
       remoteVideo.classList.add("hidden");
       remoteAudioLabel.textContent = selectedUser;
+      if (remoteAvatarCircle)
+        remoteAvatarCircle.textContent = getInitials(selectedUser);
 
       // Local
       localVideo.classList.add("hidden");
       localAudioPlaceholder.classList.remove("hidden");
+      if (localAvatarCircle)
+        localAvatarCircle.textContent = getInitials(myUserName);
 
       // Controls
       videoBtn.classList.add("hidden");
@@ -425,6 +470,8 @@ document.addEventListener("DOMContentLoaded", () => {
       // Local
       localVideo.classList.remove("hidden");
       localAudioPlaceholder.classList.add("hidden");
+      if (localAvatarCircle)
+        localAvatarCircle.textContent = getInitials(myUserName);
 
       // Controls
       videoBtn.classList.remove("hidden");
@@ -451,9 +498,22 @@ document.addEventListener("DOMContentLoaded", () => {
     const incomingCallType = data.callType || "video";
     callType = incomingCallType;
 
-    callerNameEl.textContent = `${data.from} (${
-      incomingCallType === "audio" ? "Voice" : "Video"
-    } Call)`;
+    // Update Caller Name and Type
+    callerNameEl.textContent = data.from;
+    const callTypeEl = document.getElementById("incoming-call-type");
+    if (callTypeEl) {
+      callTypeEl.textContent =
+        incomingCallType === "audio"
+          ? "Incoming Voice Call"
+          : "Incoming Video Call";
+    } else {
+      // Fallback if element doesn't exist yet (we will add it to HTML)
+      callerNameEl.textContent = `${data.from} - ${
+        incomingCallType === "audio"
+          ? "Incoming Voice Call"
+          : "Incoming Video Call"
+      }`;
+    }
 
     // Show Modal
     incomingModal.classList.remove("hidden");
@@ -474,16 +534,28 @@ document.addEventListener("DOMContentLoaded", () => {
         switchView("video-interface");
         updateCallUI("video");
 
+        // Make modal transparent for preview
+        incomingModal.classList.add("video-preview-mode");
+
         const stream = await startMedia("video");
         localVideo.srcObject = stream;
         localVideo.play().catch(() => {});
+
+        // Ensure local avatar is hidden since we have video
+        document
+          .getElementById("localAudioPlaceholder")
+          .classList.add("hidden");
       } catch (err) {
         console.error("Failed to start video preview", err);
       }
+    } else {
+      // Audio call - ensure modal is opaque
+      incomingModal.classList.remove("video-preview-mode");
     }
 
     answerCallBtn.onclick = async () => {
       incomingModal.classList.add("hidden");
+      incomingModal.classList.remove("video-preview-mode"); // Reset
       remoteRingtoneElement.muted = true;
       remoteRingtoneElement.pause();
       await acceptCall(data);
@@ -491,6 +563,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     rejectCallBtn.onclick = () => {
       incomingModal.classList.add("hidden");
+      incomingModal.classList.remove("video-preview-mode"); // Reset
       remoteRingtoneElement.muted = true;
       remoteRingtoneElement.pause();
       rejectCall(data);
@@ -595,6 +668,10 @@ document.addEventListener("DOMContentLoaded", () => {
       // Start Timer
       startCallTimer();
 
+      // Hide Calling Overlay and Switch View
+      callingOverlay.classList.add("hidden");
+      switchView("video-interface");
+
       showToast("Call established", "success");
       remoteLabel.textContent = selectedUser;
     } catch (err) {
@@ -604,6 +681,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function handleReject(data) {
     showToast(`${data.from} rejected the call`, "danger");
+    callingOverlay.classList.add("hidden"); // Hide overlay
     endCall(false);
   }
 
@@ -672,6 +750,10 @@ document.addEventListener("DOMContentLoaded", () => {
     isCallActive = false; // Reset active state
     stopCallTimer(); // Stop timer
 
+    // Hide overlays
+    if (callingOverlay) callingOverlay.classList.add("hidden");
+    if (incomingModal) incomingModal.classList.add("hidden");
+
     if (peerConnection) {
       peerConnection.close();
       peerConnection = null;
@@ -739,10 +821,10 @@ document.addEventListener("DOMContentLoaded", () => {
   muteBtn.onclick = () => {
     const stream = localVideo.srcObject;
     if (stream) {
-      const track = stream.getAudioTracks()[0];
-      if (track) {
-        track.enabled = !track.enabled;
-        muteBtn.classList.toggle("danger", !track.enabled);
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        muteBtn.classList.toggle("danger", !audioTrack.enabled);
       }
     }
   };
@@ -750,16 +832,39 @@ document.addEventListener("DOMContentLoaded", () => {
   videoBtn.onclick = () => {
     const stream = localVideo.srcObject;
     if (stream) {
-      const track = stream.getVideoTracks()[0];
-      if (track) {
-        track.enabled = !track.enabled;
-        videoBtn.classList.toggle("danger", !track.enabled);
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        videoBtn.classList.toggle("danger", !videoTrack.enabled);
+
+        // Toggle Local Avatar
+        const localAudioPlaceholder = document.getElementById(
+          "localAudioPlaceholder"
+        );
+        if (localAudioPlaceholder) {
+          if (videoTrack.enabled) {
+            localAudioPlaceholder.classList.add("hidden");
+          } else {
+            localAudioPlaceholder.classList.remove("hidden");
+          }
+        }
+
+        // Send Signal to Remote Peer
+        if (isCallActive && selectedUser) {
+          ws.send(
+            JSON.stringify({
+              type: "video-toggle",
+              to: selectedUser,
+              from: myUserName,
+              enabled: videoTrack.enabled,
+            })
+          );
+        }
       }
     }
   };
 
   hangupBtn.onclick = () => {
-    endCall(true);
-    showToast("Call ended", "info");
+    endCall();
   };
 });

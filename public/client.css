@@ -479,22 +479,125 @@ body {
   z-index: 5;
 }
 
+/* Enhanced Audio Placeholder */
 .audio-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   color: white;
+  background: radial-gradient(circle at center, #2c3e50 0%, #1a1a1a 100%);
+  z-index: 10;
+  transition: opacity 0.3s ease;
 }
 
 .avatar-circle {
-  width: 80px;
-  height: 80px;
-  background: var(--surface-light);
+  width: 120px;
+  height: 120px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 10px;
+  margin-bottom: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  font-size: 48px;
+  font-weight: 700;
+  color: white;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  border: 4px solid rgba(255, 255, 255, 0.1);
+}
+
+.avatar-name {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  margin-top: 8px;
+}
+
+/* Local View Adjustments */
+.local .audio-placeholder {
+  background: #2c2c2c; /* Simple dark background for small view */
+}
+
+.local .avatar-circle {
+  width: 50px;
+  height: 50px;
+  font-size: 20px;
+  margin-bottom: 0;
+  border-width: 2px;
+  box-shadow: none;
+}
+
+.local .avatar-name {
+  display: none; /* Hide name in small view */
+}
+
+/* Pulsing Animation */
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(118, 75, 162, 0.7);
+  }
+  70% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 20px rgba(118, 75, 162, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(118, 75, 162, 0);
+  }
+}
+
+.avatar-circle.pulsing {
+  animation: pulse 2s infinite;
+}
+
+/* Remote Avatar Size override */
+.remote .avatar-circle {
+  width: 140px;
+  height: 140px;
+  font-size: 56px;
+}
+
+/* Calling Overlay */
+#calling-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-color);
+  z-index: 200; /* Above everything */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+#calling-overlay.hidden {
+  display: none;
+}
+
+#calling-overlay h3 {
+  margin-top: 20px;
+  font-size: 24px;
+  font-weight: 300;
+  color: white;
+}
+
+#calling-overlay .avatar-circle {
+  width: 120px;
+  height: 120px;
+  background: var(--surface-light);
+  margin-bottom: 40px;
 }
 
 .local {
@@ -575,6 +678,18 @@ body {
   justify-content: center;
   z-index: 100;
   animation: fadeIn 0.3s;
+}
+
+/* Semi-transparent mode for video preview */
+.modal.video-preview-mode {
+  background: rgba(0, 0, 0, 0.4); /* Allow seeing behind */
+}
+
+/* Mobile Call Overhaul overrides */
+@media (max-width: 768px) {
+  .modal.video-preview-mode {
+    background: rgba(0, 0, 0, 0.3); /* Even clearer on mobile */
+  }
 }
 
 .modal-content {

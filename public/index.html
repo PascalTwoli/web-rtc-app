@@ -199,6 +199,12 @@
           <!-- Call Header / Timer -->
           <div id="call-status-bar" class="call-status-bar hidden">
             <div class="call-info">
+              <span
+                id="app-name-header"
+                class="mobile-only"
+                style="font-weight: 700; font-size: 16px; margin-bottom: 4px"
+                >Peers</span
+              >
               <span id="call-status-text">Connected</span>
               <span id="call-timer">00:00</span>
             </div>
@@ -208,18 +214,8 @@
             <div class="video-wrapper local">
               <video id="localVideo" autoplay muted playsinline></video>
               <div id="localAudioPlaceholder" class="audio-placeholder hidden">
-                <div class="avatar-circle" style="width: 50px; height: 50px">
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="24"
-                    height="24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="12" cy="7" r="4"></circle>
-                  </svg>
+                <div class="avatar-circle" id="localAvatarCircle">
+                  <!-- Initials will go here -->
                 </div>
               </div>
               <span class="video-label">You</span>
@@ -228,20 +224,10 @@
               <video id="remoteVideo" autoplay playsinline></video>
               <!-- Audio Only Avatar -->
               <div id="audioOnlyPlaceholder" class="audio-placeholder hidden">
-                <div class="avatar-circle">
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="40"
-                    height="40"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="12" cy="7" r="4"></circle>
-                  </svg>
+                <div class="avatar-circle" id="remoteAvatarCircle">
+                  <!-- Initials will go here -->
                 </div>
-                <p id="remoteAudioLabel">User</p>
+                <p id="remoteAudioLabel" class="avatar-name">User</p>
               </div>
               <span class="video-label" id="remoteLabel">Remote</span>
             </div>
@@ -317,13 +303,49 @@
         <!-- Incoming Call Modal -->
         <div id="incoming-call-modal" class="modal hidden">
           <div class="modal-content">
-            <h3>Incoming Call</h3>
+            <h3 id="incoming-call-type">Incoming Call</h3>
             <p id="caller-name">Unknown User</p>
             <div class="modal-actions">
               <button id="answerCallBtn" class="success">Answer</button>
               <button id="rejectCallBtn" class="danger">Decline</button>
             </div>
           </div>
+        </div>
+
+        <!-- Calling Overlay -->
+        <div id="calling-overlay" class="hidden">
+          <div class="avatar-circle pulsing">
+            <svg
+              viewBox="0 0 24 24"
+              width="60"
+              height="60"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"
+              ></path>
+            </svg>
+          </div>
+          <h3 id="calling-text">Calling...</h3>
+          <button
+            id="cancelCallBtn"
+            class="control-btn danger"
+            style="margin-top: 60px"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
       </main>
     </div>
