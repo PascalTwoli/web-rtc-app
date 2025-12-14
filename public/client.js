@@ -1,11 +1,16 @@
 let ws;
 let peerConnection;
-let dataChannel;
-let myUserName = null;
-let selectedUser = null;
-let pendingRemoteCandidates = [];
-let callType = "video"; // 'video' or 'audio'
-let isCallActive = false; // Tracks if a call is ongoing
+
+const AppState = {
+  myUserName: null,
+  selectedUser: null,
+  pendingRemoteCandidates: [],
+  callType: "video", // 'video' or 'audio'
+  isCallActive: false,
+  currentFacingMode: "user",
+  reconnectAttempts: 0,
+  maxReconnectAttempts: 5,
+};
 
 let config = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -125,7 +130,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Manage Return to Call Button
-    if (viewId === "chat-interface" && isCallActive) {
+    if (viewId === "chat-interface" && AppState.isCallActive) {
       returnToCallBtn.classList.remove("hidden");
     } else {
       returnToCallBtn.classList.add("hidden");
@@ -173,6 +178,11 @@ document.addEventListener("DOMContentLoaded", () => {
       toast.style.transform = "translateY(-10px)"; // Slide up on exit
       setTimeout(() => toast.remove(), 300);
     }, 3000);
+  }
+
+  function handleError(error, userMessage = "An error occurred") {
+    console.error(error);
+    showToast(userMessage, "danger");
   }
 
   function addMessage(text, className = "system", fromUser = null) {
@@ -238,7 +248,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Check for persisted user
   const savedUser = localStorage.getItem("peers_username");
   if (savedUser) {
-    myUserName = savedUser;
+    AppState.myUserName = savedUser;
     initWebSocket();
     loginScreen.classList.add("hidden");
     app.classList.remove("hidden");
@@ -255,7 +265,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Explicitly unlock audio on join
     unlockAudio();
 
-    myUserName = name;
+    AppState.myUserName = name;
     localStorage.setItem("peers_username", name);
     initWebSocket();
     loginScreen.classList.add("hidden");
@@ -272,7 +282,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateUserIdentity() {
     if (myUserNameDisplay) {
-      myUserNameDisplay.textContent = myUserName;
+      myUserNameDisplay.textContent = AppState.myUserName;
       currentUserDisplay.classList.remove("hidden");
     }
     if (logoutBtn) {
@@ -280,7 +290,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     // Update Local Avatar Initials
     if (localAvatarCircle) {
-      localAvatarCircle.textContent = getInitials(myUserName);
+      localAvatarCircle.textContent = getInitials(AppState.myUserName);
     }
   }
 
@@ -289,6 +299,14 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   function initWebSocket() {
+    if (
+      ws &&
+      (ws.readyState === WebSocket.OPEN ||
+        ws.readyState === WebSocket.CONNECTING)
+    ) {
+      return; // Already connected or connecting
+    }
+
     const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
     const wsUrl = `${wsProtocol}://${window.location.host}`;
     ws = new WebSocket(wsUrl);
@@ -307,7 +325,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     ws.onopen = () => {
       showToast("Connected to server", "success");
-      ws.send(JSON.stringify({ type: "join", username: myUserName }));
+      AppState.reconnectAttempts = 0; // Reset attempts on success
+      if (AppState.myUserName) {
+        ws.send(
+          JSON.stringify({ type: "join", username: AppState.myUserName })
+        );
+      }
     };
 
     ws.onmessage = async (event) => {
@@ -349,7 +372,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
           break;
         case "chat":
-          if (data.from !== selectedUser) {
+          if (data.from !== AppState.selectedUser) {
             showToast(`New message from ${data.from}`, "info");
           }
           addMessage(data.text, "other", data.from);
@@ -361,22 +384,38 @@ document.addEventListener("DOMContentLoaded", () => {
 
     ws.onerror = (err) => {
       console.error("WebSocket error:", err);
-      showToast("Connection error", "danger");
+      // showToast("Connection error", "danger"); // Too noisy for reconnects
     };
 
     ws.onclose = () => {
-      showToast("Disconnected from server", "danger");
+      console.log("Disconnected from server");
+      // showToast("Disconnected from server", "danger");
+
+      // Auto-reconnect logic
+      if (AppState.reconnectAttempts < AppState.maxReconnectAttempts) {
+        AppState.reconnectAttempts++;
+        const timeout = Math.min(
+          1000 * Math.pow(2, AppState.reconnectAttempts),
+          10000
+        );
+        console.log(
+          `Reconnecting in ${timeout}ms... (Attempt ${AppState.reconnectAttempts})`
+        );
+        setTimeout(initWebSocket, timeout);
+      } else {
+        showToast("Connection lost. Please refresh.", "danger");
+      }
     };
   }
 
   function updateUserList(usernames) {
     usersListEl.innerHTML = "";
     usernames.forEach((name) => {
-      if (name === myUserName) return;
+      if (name === AppState.myUserName) return;
       const li = document.createElement("li");
       li.textContent = name;
       li.onclick = () => {
-        selectedUser = name;
+        AppState.selectedUser = name;
         chatUserName.textContent = name;
         // Switch to Chat Interface
         switchView("chat-interface");
@@ -407,7 +446,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Update Labels for Swapped State
         if (localVideoLabel) localVideoLabel.textContent = "You";
         if (remoteVideoLabel)
-          remoteVideoLabel.textContent = selectedUser || "Remote";
+          remoteVideoLabel.textContent = AppState.selectedUser || "Remote";
       } else {
         localVideoWrapper.className = "video-wrapper local";
         remoteVideoWrapper.className = "video-wrapper remote";
@@ -415,7 +454,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Reset Labels
         if (localVideoLabel) localVideoLabel.textContent = "You";
         if (remoteVideoLabel)
-          remoteVideoLabel.textContent = selectedUser || "Remote";
+          remoteVideoLabel.textContent = AppState.selectedUser || "Remote";
       }
     };
 
@@ -428,7 +467,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Reset Labels
         if (localVideoLabel) localVideoLabel.textContent = "You";
         if (remoteVideoLabel)
-          remoteVideoLabel.textContent = selectedUser || "Remote";
+          remoteVideoLabel.textContent = AppState.selectedUser || "Remote";
       }
     };
   }
@@ -436,9 +475,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- Refactored Call Helpers ---
 
   function initializeCallSession(user, type, isIncoming = false) {
-    selectedUser = user;
-    callType = type;
-    isCallActive = true;
+    AppState.selectedUser = user;
+    AppState.callType = type;
+    AppState.isCallActive = true;
 
     // Reset UI State
     muteBtn.classList.remove("danger");
@@ -453,7 +492,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (localVideoLabel) localVideoLabel.textContent = "You";
     if (localAudioLabel) localAudioLabel.textContent = "You";
     if (localAvatarCircle)
-      localAvatarCircle.textContent = getInitials(myUserName);
+      localAvatarCircle.textContent = getInitials(AppState.myUserName);
 
     // Switch View
     switchView("video-interface");
@@ -491,13 +530,13 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     peerConnection.onicecandidate = (e) => {
-      if (e.candidate && selectedUser) {
+      if (e.candidate && AppState.selectedUser) {
         ws.send(
           JSON.stringify({
             type: "ice",
             ice: e.candidate,
-            to: selectedUser,
-            from: myUserName,
+            to: AppState.selectedUser,
+            from: AppState.myUserName,
           })
         );
       }
@@ -514,7 +553,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // --- Call Logic ---
-  let currentFacingMode = "user";
 
   async function startMedia(type = "video") {
     try {
@@ -524,12 +562,13 @@ document.addEventListener("DOMContentLoaded", () => {
           noiseSuppression: true,
           autoGainControl: true,
         },
-        video: type === "video" ? { facingMode: currentFacingMode } : false,
+        video:
+          type === "video" ? { facingMode: AppState.currentFacingMode } : false,
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       return stream;
     } catch (err) {
-      showToast("Camera/Mic access denied", "danger");
+      handleError(err, "Camera/Mic access denied");
       throw err;
     }
   }
@@ -543,8 +582,8 @@ document.addEventListener("DOMContentLoaded", () => {
   startVideoCallBtn.onclick = () => startCall("video");
 
   async function startCall(type) {
-    if (!selectedUser) return;
-    if (isCallActive) {
+    if (!AppState.selectedUser) return;
+    if (AppState.isCallActive) {
       showToast("You are already in a call!", "danger");
       return;
     }
@@ -556,7 +595,7 @@ document.addEventListener("DOMContentLoaded", () => {
       localVideo.play().catch(() => {});
 
       // 2. Initialize Session UI
-      initializeCallSession(selectedUser, type, false);
+      initializeCallSession(AppState.selectedUser, type, false);
 
       // 3. Setup PC
       setupPeerConnection(stream);
@@ -572,8 +611,8 @@ document.addEventListener("DOMContentLoaded", () => {
       ws.send(
         JSON.stringify({
           type: "offer",
-          to: selectedUser,
-          from: myUserName,
+          to: AppState.selectedUser,
+          from: AppState.myUserName,
           offer,
           callType: type,
         })
@@ -582,8 +621,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // Cancel Handler
       cancelCallBtn.onclick = () => endCall(true);
     } catch (err) {
-      console.error(err);
-      showToast("Failed to start call", "danger");
+      handleError(err, "Failed to start call");
       endCall(false);
     }
   }
@@ -643,21 +681,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Handle Offer
   async function handleOffer(data) {
-    if (isCallActive) {
+    if (AppState.isCallActive) {
       ws.send(
         JSON.stringify({
           type: "reject",
           to: data.from,
-          from: myUserName,
+          from: AppState.myUserName,
           reason: "busy",
         })
       );
       return;
     }
 
-    selectedUser = data.from;
+    AppState.selectedUser = data.from;
     const incomingCallType = data.callType || "video";
-    callType = incomingCallType;
+    AppState.callType = incomingCallType;
 
     // Update Caller Name
     callerNameEl.textContent = data.from;
@@ -696,7 +734,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Video Preview Logic
     if (incomingCallType === "video") {
       try {
-        if (chatUserName) chatUserName.textContent = selectedUser;
+        if (chatUserName) chatUserName.textContent = AppState.selectedUser;
 
         switchView("video-interface");
         updateCallUI("video");
@@ -711,11 +749,11 @@ document.addEventListener("DOMContentLoaded", () => {
           .getElementById("localAudioPlaceholder")
           .classList.add("fade-out");
       } catch (err) {
-        console.error("Failed to start video preview", err);
+        handleError(err, "Failed to start video preview");
       }
     } else {
       incomingModal.classList.remove("video-preview-mode");
-      if (chatUserName) chatUserName.textContent = selectedUser;
+      if (chatUserName) chatUserName.textContent = AppState.selectedUser;
       switchView("video-interface");
       updateCallUI("audio");
     }
@@ -728,8 +766,8 @@ document.addEventListener("DOMContentLoaded", () => {
       remoteRingtoneElement.pause();
       remoteRingtoneElement.currentTime = 0;
 
-      if (selectedUser) {
-        loadChatHistory(selectedUser);
+      if (AppState.selectedUser) {
+        loadChatHistory(AppState.selectedUser);
       }
 
       await acceptCall(data);
@@ -752,18 +790,17 @@ document.addEventListener("DOMContentLoaded", () => {
       let stream = localVideo.srcObject;
       if (!stream) {
         try {
-          stream = await startMedia(callType);
+          stream = await startMedia(AppState.callType);
           localVideo.srcObject = stream;
           await localVideo.play().catch(() => {});
         } catch (mediaErr) {
-          console.error("Failed to start media in acceptCall:", mediaErr);
-          showToast("Could not access Camera/Mic", "danger");
+          handleError(mediaErr, "Could not access Camera/Mic");
           return;
         }
       }
 
       // 2. Initialize Session UI (Incoming = true)
-      initializeCallSession(data.from, callType, true);
+      initializeCallSession(data.from, AppState.callType, true);
 
       // 3. Setup PC
       setupPeerConnection(stream);
@@ -774,8 +811,10 @@ document.addEventListener("DOMContentLoaded", () => {
       );
 
       // 5. Add Candidates
-      while (pendingRemoteCandidates.length) {
-        await peerConnection.addIceCandidate(pendingRemoteCandidates.shift());
+      while (AppState.pendingRemoteCandidates.length) {
+        await peerConnection.addIceCandidate(
+          AppState.pendingRemoteCandidates.shift()
+        );
       }
 
       // 6. Create Answer
@@ -787,7 +826,7 @@ document.addEventListener("DOMContentLoaded", () => {
         JSON.stringify({
           type: "answer",
           to: data.from,
-          from: myUserName,
+          from: AppState.myUserName,
           answer,
         })
       );
@@ -796,15 +835,18 @@ document.addEventListener("DOMContentLoaded", () => {
       startCallTimer();
       addMessage(`Connected to ${data.from}`, "system");
     } catch (err) {
-      console.error("Error in acceptCall:", err);
-      showToast("Failed to accept call: " + err.message, "danger");
+      handleError(err, "Failed to accept call: " + err.message);
       endCall(false);
     }
   }
 
   function rejectCall(data) {
     ws.send(
-      JSON.stringify({ type: "reject", to: data.from, from: myUserName })
+      JSON.stringify({
+        type: "reject",
+        to: data.from,
+        from: AppState.myUserName,
+      })
     );
     showToast("Call declined", "info");
 
@@ -822,8 +864,10 @@ document.addEventListener("DOMContentLoaded", () => {
       await peerConnection.setRemoteDescription(
         new RTCSessionDescription(data.answer)
       );
-      while (pendingRemoteCandidates.length) {
-        await peerConnection.addIceCandidate(pendingRemoteCandidates.shift());
+      while (AppState.pendingRemoteCandidates.length) {
+        await peerConnection.addIceCandidate(
+          AppState.pendingRemoteCandidates.shift()
+        );
       }
       startCallTimer();
 
@@ -832,7 +876,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       showToast("Call established", "success");
     } catch (err) {
-      console.error(err);
+      handleError(err, "Failed to establish connection");
     }
   }
 
@@ -843,7 +887,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function handleHangup(data) {
-    if (!isCallActive && incomingModal.classList.contains("hidden") === false) {
+    if (
+      !AppState.isCallActive &&
+      incomingModal.classList.contains("hidden") === false
+    ) {
       incomingModal.classList.add("hidden");
       remoteRingtoneElement.muted = true;
       remoteRingtoneElement.pause();
@@ -862,7 +909,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (peerConnection.remoteDescription) {
         await peerConnection.addIceCandidate(candidate);
       } else {
-        pendingRemoteCandidates.push(candidate);
+        AppState.pendingRemoteCandidates.push(candidate);
       }
     } catch (err) {
       console.error(err);
@@ -870,15 +917,19 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function endCall(sendSignal = true) {
-    if (sendSignal && selectedUser && isCallActive) {
+    if (sendSignal && AppState.selectedUser && AppState.isCallActive) {
       ws.send(
-        JSON.stringify({ type: "hangup", to: selectedUser, from: myUserName })
+        JSON.stringify({
+          type: "hangup",
+          to: AppState.selectedUser,
+          from: AppState.myUserName,
+        })
       );
     }
 
     const durationText = callTimerEl.textContent;
 
-    isCallActive = false;
+    AppState.isCallActive = false;
     stopCallTimer();
 
     if (localVideo.srcObject) {
@@ -906,16 +957,16 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => {
         callEndedOverlay.classList.add("hidden");
         switchView("chat-interface");
-        if (selectedUser) {
-          loadChatHistory(selectedUser);
+        if (AppState.selectedUser) {
+          loadChatHistory(AppState.selectedUser);
         }
       }, 2000);
     } else {
       switchView("chat-interface");
     }
 
-    callType = "video";
-    currentFacingMode = "user";
+    AppState.callType = "video";
+    AppState.currentFacingMode = "user";
 
     if (remoteVideoLabel) remoteVideoLabel.textContent = "Remote";
     if (remoteAudioLabel) remoteAudioLabel.textContent = "User";
@@ -944,13 +995,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function sendChat(inputEl) {
     const text = inputEl.value.trim();
-    if (!text || !selectedUser) return;
+    if (!text || !AppState.selectedUser) return;
 
     ws.send(
       JSON.stringify({
         type: "chat",
-        to: selectedUser,
-        from: myUserName,
+        to: AppState.selectedUser,
+        from: AppState.myUserName,
         text: text,
       })
     );
@@ -978,9 +1029,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (flipCameraBtn) {
     flipCameraBtn.onclick = async () => {
-      if (callType !== "video") return;
+      if (AppState.callType !== "video") return;
 
-      currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
+      AppState.currentFacingMode =
+        AppState.currentFacingMode === "user" ? "environment" : "user";
 
       const oldStream = localVideo.srcObject;
       if (oldStream) {
@@ -1002,8 +1054,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
       } catch (err) {
-        console.error("Failed to flip camera:", err);
-        showToast("Failed to switch camera", "danger");
+        handleError(err, "Failed to switch camera");
       }
     };
   }
@@ -1038,12 +1089,12 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
 
-        if (isCallActive && selectedUser) {
+        if (AppState.isCallActive && AppState.selectedUser) {
           ws.send(
             JSON.stringify({
               type: "video-toggle",
-              to: selectedUser,
-              from: myUserName,
+              to: AppState.selectedUser,
+              from: AppState.myUserName,
               enabled: videoTrack.enabled,
             })
           );
