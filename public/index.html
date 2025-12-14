@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>WebRTC Test</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="client.css" />
+  </head>
+  <body>
+    <h1>WebRTC Peer Test</h1>
+    <div id="controls">
+      <button id="startCallBtn">
+        <img src="/call_icon.png" alt="" /> Start Call
+      </button>
+      <button id="hangupBtn">
+        <img src="/hangup_icon.png" alt="" /> Hang Up
+      </button>
+
+      <button id="muteBtn">
+        <img src="/mute_icon.png" alt="" /> Mute/Unmute
+      </button>
+
+      <button id="videoBtn">
+        <img src="/video_icon.png" alt="" /> Video On/Off
+      </button>
+
+      <!-- Answer buttons -->
+      <div id="answerControls" style="display: none">
+        <button id="answerCallBtn">
+          <img src="/answer_icon.png" alt="" /> Answer Call
+        </button>
+        <button id="rejectCallBtn">
+          <img src="/reject_icon.png" alt="" /> Reject Call
+        </button>
+      </div>
+    </div>
+
+    <div id="container">
+      <div id="video-area">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <video id="remoteVideo" autoplay playsinline></video>
+        <audio
+          id="remoteRingtone"
+          src="./hyunjin_ringtone.mp3"
+          autoplay
+          muted
+          loop
+        ></audio>
+      </div>
+
+      <div id="chat-area">
+        <div id="messages"></div>
+
+        <div id="chat-input-area">
+          <input id="chatInput" placeholder="Type a message..." />
+          <button id="sendBtn">Send</button>
+        </div>
+      </div>
+      <div id="usersPanel">
+        <h3>Online users</h3>
+        <ul id="usersList"></ul>
+      </div>
+    </div>
+
+    <script src="client.js"></script>
+  </body>
+</html>
