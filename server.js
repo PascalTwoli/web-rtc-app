@@ -81,6 +81,8 @@ wss.on("connection", (ws) => {
                 ? { type: "answer", answer: data.answer, from: users.get(ws) }
                 : data.type === "ice"
                 ? { type: "ice", ice: data.ice, from: users.get(ws) }
+                : data.type === "hangup"
+                ? { type: "hangup", from: users.get(ws) }
                 : { type: "reject", from: users.get(ws) };
 
             targetUserWs.send(JSON.stringify(payload));

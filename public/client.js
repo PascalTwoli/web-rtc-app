@@ -3,8 +3,9 @@ let peerConnection;
 let dataChannel;
 let myUserName = null;
 let selectedUser = null;
+let pendingRemoteCandidates = [];
 
-const config = {
+let config = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
@@ -40,6 +41,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const wsUrl = `${wsProtocol}://${window.location.host}`;
   ws = new WebSocket(wsUrl);
 
+  const params = new URLSearchParams(window.location.search);
+  const turn = params.get("turn");
+  const turnUser = params.get("turnUser");
+  const turnPass = params.get("turnPass");
+  if (turn && turnUser && turnPass) {
+    config.iceServers.push({
+      urls: turn,
+      username: turnUser,
+      credential: turnPass,
+    });
+  }
   ws.onopen = () => {
     myUserName = prompt("Enter your name:") || "Anonymous";
     addMessage("Connected to signaling server", "system");
@@ -116,7 +128,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const localStream = await navigator.mediaDevices.getUserMedia({
       video: true,
-      audio: true,
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
     });
 
     return localStream;
@@ -151,6 +167,19 @@ document.addEventListener("DOMContentLoaded", () => {
             from: myUserName,
           })
         );
+      }
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+      const s = peerConnection.connectionState;
+      if (s === "failed" || s === "disconnected" || s === "closed") {
+        endCall(false);
+      }
+    };
+    peerConnection.oniceconnectionstatechange = () => {
+      const s = peerConnection.iceConnectionState;
+      if (s === "failed" || s === "disconnected") {
+        endCall(false);
       }
     };
 
@@ -216,6 +245,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Handle incoming offer
   async function handleOffer(data) {
     console.log("Handling offer from", data.from);
+    selectedUser = data.from;
 
     // Display answer controls
     answerControls.style.display = "block";
@@ -239,10 +269,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // Handle answer to our offer
   async function handleAnswer(data) {
     console.log("Handling answer from", data);
+    selectedUser = data.from;
     try {
       await peerConnection.setRemoteDescription(
         new RTCSessionDescription(data.answer)
       );
+      while (pendingRemoteCandidates.length) {
+        const c = pendingRemoteCandidates.shift();
+        await peerConnection.addIceCandidate(c);
+      }
       addMessage(`Call established with ${data.from}`, "system");
     } catch (err) {
       console.error("handleAnswer failed:", err);
@@ -253,18 +288,7 @@ document.addEventListener("DOMContentLoaded", () => {
   async function handleHangup(data) {
     console.log("Handling hangup from", data.from);
     addMessage(`Call ended by ${data.from}`, "system");
-    // Clean up peer connection if needed
-    if (peerConnection) {
-      peerConnection.close();
-      peerConnection = null;
-    }
-    if (localVideo && localVideo.srcObject) {
-      localVideo.srcObject.getTracks().forEach((t) => t.stop());
-      localVideo.srcObject = null;
-    }
-    if (remoteVideo) {
-      remoteVideo.srcObject = null;
-    }
+    endCall(false);
   }
 
   async function acceptCall(data) {
@@ -286,6 +310,10 @@ document.addEventListener("DOMContentLoaded", () => {
       await peerConnection.setRemoteDescription(
         new RTCSessionDescription(data.offer)
       );
+      while (pendingRemoteCandidates.length) {
+        const c = pendingRemoteCandidates.shift();
+        await peerConnection.addIceCandidate(c);
+      }
 
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
@@ -340,7 +368,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     try {
-      await peerConnection.addIceCandidate(new RTCIceCandidate(data.ice));
+      const candidate = new RTCIceCandidate(data.ice);
+      if (peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
+        await peerConnection.addIceCandidate(candidate);
+      } else {
+        pendingRemoteCandidates.push(candidate);
+      }
     } catch (err) {
       console.error("handleIceCandidate failed:", err);
       addMessage(
@@ -366,26 +399,28 @@ document.addEventListener("DOMContentLoaded", () => {
   if (startBtn) startBtn.addEventListener("click", startCall);
   if (sendBtn) sendBtn.addEventListener("click", sendChat);
 
-  if (hangupBtn)
-    hangupBtn.addEventListener("click", () => {
-      if (peerConnection) {
-        peerConnection.getSenders().forEach((s) => {
-          try {
-            s.track && s.track.stop();
-          } catch (_) {}
-        });
+  function endCall(sendSignal = true) {
+    if (peerConnection) {
+      peerConnection.getSenders().forEach((s) => {
+        try {
+          s.track && s.track.stop();
+        } catch (_) {}
+      });
+      try {
         peerConnection.close();
-        peerConnection = null;
-      }
-      if (localVideo && localVideo.srcObject) {
+      } catch (_) {}
+      peerConnection = null;
+    }
+    if (localVideo && localVideo.srcObject) {
+      try {
         localVideo.srcObject.getTracks().forEach((t) => t.stop());
-        localVideo.srcObject = null;
-      }
-      if (remoteVideo) {
-        remoteVideo.srcObject = null;
-      }
-
-      // Send a hangup signal if needed (not implemented in signaling yet)
+      } catch (_) {}
+      localVideo.srcObject = null;
+    }
+    if (remoteVideo) {
+      remoteVideo.srcObject = null;
+    }
+    if (sendSignal && selectedUser && ws && ws.readyState === ws.OPEN) {
       ws.send(
         JSON.stringify({
           type: "hangup",
@@ -393,7 +428,12 @@ document.addEventListener("DOMContentLoaded", () => {
           from: myUserName,
         })
       );
+    }
+  }
 
+  if (hangupBtn)
+    hangupBtn.addEventListener("click", () => {
+      endCall(true);
       addMessage("Call ended", "system");
     });
 
