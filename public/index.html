@@ -22,8 +22,12 @@
         <input
           type="text"
           id="usernameInput"
+          name="username"
           placeholder="Your Name"
           autofocus
+          autocomplete="off"
+          spellcheck="false"
+          data-lpignore="true"
         />
         <button id="joinBtn">Join</button>
       </div>
@@ -104,7 +108,7 @@
         <!-- 2. Chat Interface (Pre-Call) -->
         <div id="chat-interface" class="main-view hidden">
           <div class="chat-header">
-            <div style="display: flex; align-items: center; gap: 10px">
+            <div class="header-left">
               <button
                 id="backToUsersBtn"
                 class="action-btn mobile-only"
@@ -112,8 +116,8 @@
               >
                 <svg
                   viewBox="0 0 24 24"
-                  width="20"
-                  height="20"
+                  width="24"
+                  height="24"
                   fill="none"
                   stroke="currentColor"
                   stroke-width="2"
@@ -121,23 +125,31 @@
                   <path d="M19 12H5M12 19l-7-7 7-7"></path>
                 </svg>
               </button>
-              <h3 id="chatUserName">User Name</h3>
+              <div id="chatAvatar" class="header-avatar">?</div>
+              <div class="header-user-info">
+                <h3 id="chatUserName">User Name</h3>
+                <span class="user-status">Online</span>
+              </div>
             </div>
             <div class="chat-actions">
               <button
                 id="returnToCallBtn"
-                class="action-btn success hidden"
+                class="hidden"
                 title="Return to Call"
-                style="
-                  width: auto;
-                  padding: 0 16px;
-                  border-radius: 20px;
-                  gap: 8px;
-                "
               >
-                <span style="font-size: 14px; font-weight: 600"
-                  >Tap to Return</span
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
                 >
+                  <path
+                    d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"
+                  ></path>
+                </svg>
+                <span>Return</span>
               </button>
               <button
                 id="startAudioCallBtn"
@@ -178,7 +190,14 @@
           </div>
           <div id="mainMessages" class="messages-container"></div>
           <div class="chat-input-area">
-            <input id="mainChatInput" placeholder="Type a message..." />
+            <input
+              id="mainChatInput"
+              name="message"
+              placeholder="Type a message..."
+              autocomplete="off"
+              spellcheck="false"
+              data-lpignore="true"
+            />
             <button id="mainSendBtn" class="send-btn">
               <svg
                 viewBox="0 0 24 24"

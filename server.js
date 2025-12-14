@@ -67,6 +67,7 @@ wss.on("connection", (ws) => {
         case "ice":
         case "hangup":
         case "chat":
+        case "video-toggle":
           // Forward the offer/answer/ice to the selected user's WebSocket
           const targetUserWs = Array.from(users.entries()).find(
             ([, username]) => username === data.to
@@ -91,6 +92,12 @@ wss.on("connection", (ws) => {
                 ? { type: "hangup", from: users.get(ws) }
                 : data.type === "chat"
                 ? { type: "chat", text: data.text, from: users.get(ws) }
+                : data.type === "video-toggle"
+                ? {
+                    type: "video-toggle",
+                    enabled: data.enabled,
+                    from: users.get(ws),
+                  }
                 : { type: "reject", from: users.get(ws) };
 
             targetUserWs.send(JSON.stringify(payload));

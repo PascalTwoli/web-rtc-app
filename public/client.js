@@ -70,6 +70,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Main Chat Interface
   const chatUserName = document.getElementById("chatUserName");
+  const chatAvatar = document.getElementById("chatAvatar");
   const returnToCallBtn = document.getElementById("returnToCallBtn");
   const startAudioCallBtn = document.getElementById("startAudioCallBtn");
   const startVideoCallBtn = document.getElementById("startVideoCallBtn");
@@ -157,9 +158,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Manage Return to Call Button
     if (viewId === "chat-interface" && AppState.isCallActive) {
-      returnToCallBtn.classList.remove("hidden");
+      if (returnToCallBtn) returnToCallBtn.classList.remove("hidden");
+      if (startAudioCallBtn) startAudioCallBtn.classList.add("hidden");
+      if (startVideoCallBtn) startVideoCallBtn.classList.add("hidden");
     } else {
-      returnToCallBtn.classList.add("hidden");
+      if (returnToCallBtn) returnToCallBtn.classList.add("hidden");
+      if (startAudioCallBtn) startAudioCallBtn.classList.remove("hidden");
+      if (startVideoCallBtn) startVideoCallBtn.classList.remove("hidden");
     }
 
     // Mobile: If switching to a main view (chat or video), close sidebar
@@ -302,10 +307,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const savedUser = localStorage.getItem("peers_username");
   if (savedUser) {
     AppState.myUserName = savedUser;
+    // Don't auto-hide login screen completely if we want to force interaction?
+    // Actually, let's keep it but add a subtle "Click to reconnect" overlay if needed?
+    // No, standard behavior is auto-login. The recovery logic above handles the call case.
+
     initWebSocket();
     loginScreen.classList.add("hidden");
     app.classList.remove("hidden");
     updateUserIdentity();
+
+    // Attempt to unlock audio silently on first load if possible (unlikely to work without gesture)
+    // But we can try just in case user refreshed with interaction? No.
   }
 
   joinBtn.addEventListener("click", () => {
@@ -509,9 +521,42 @@ document.addEventListener("DOMContentLoaded", () => {
     usernames.forEach((name) => {
       if (name === AppState.myUserName) return;
       const li = document.createElement("li");
-      li.textContent = name;
+
+      // Enhanced User Item Structure
+      const avatarDiv = document.createElement("div");
+      avatarDiv.className = "list-avatar";
+      avatarDiv.textContent = getInitials(name);
+
+      const infoDiv = document.createElement("div");
+      infoDiv.className = "list-info";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "list-name";
+      nameSpan.textContent = name;
+
+      const statusSpan = document.createElement("span");
+      statusSpan.className = "list-status";
+      statusSpan.textContent = "Online";
+
+      infoDiv.appendChild(nameSpan);
+      infoDiv.appendChild(statusSpan);
+
+      li.appendChild(avatarDiv);
+      li.appendChild(infoDiv);
+
+      // Restore selection state
+      if (AppState.selectedUser === name) {
+        li.classList.add("selected");
+      }
+
       li.onclick = () => {
-        // If already selected, do nothing or just switch view
+        // Update selection styles
+        document.querySelectorAll("#usersList li").forEach((el) => {
+          el.classList.remove("selected");
+        });
+        li.classList.add("selected");
+
+        // If already selected and in chat view, do nothing special
         if (AppState.selectedUser === name) {
           switchView("chat-interface");
           sidebar.classList.add("closed");
@@ -520,6 +565,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         AppState.selectedUser = name;
         chatUserName.textContent = name;
+        if (chatAvatar) chatAvatar.textContent = getInitials(name);
 
         loadChatHistory(name); // Load history
 
@@ -527,7 +573,7 @@ document.addEventListener("DOMContentLoaded", () => {
         switchView("chat-interface");
         // Hide sidebar on mobile
         sidebar.classList.add("closed");
-        showToast(`Chatting with ${name}`, "info");
+        // showToast(`Chatting with ${name}`, "info"); // Removed to reduce noise
       };
       usersListEl.appendChild(li);
     });
@@ -830,7 +876,26 @@ document.addEventListener("DOMContentLoaded", () => {
       if (playPromise !== undefined) {
         playPromise.catch((error) => {
           console.warn("Ringtone playback failed (autoplay policy?):", error);
-          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+
+          // Show visual cue
+          showToast("Tap anywhere to enable sound", "info");
+
+          // Rescue: Try to play on next interaction
+          const retryAudio = () => {
+            remoteRingtoneElement
+              .play()
+              .catch((e) => console.log("Retry failed", e));
+            if (navigator.vibrate) {
+              try {
+                navigator.vibrate([200, 100, 200]);
+              } catch (e) {}
+            }
+            document.body.removeEventListener("click", retryAudio);
+            document.body.removeEventListener("touchstart", retryAudio);
+          };
+
+          document.body.addEventListener("click", retryAudio);
+          document.body.addEventListener("touchstart", retryAudio);
         });
       }
     } catch (e) {
@@ -1093,6 +1158,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!user) return;
 
     chatUserName.textContent = user;
+    if (chatAvatar) chatAvatar.textContent = getInitials(user);
     mainMessages.innerHTML = "";
 
     // Load persisted messages
@@ -1101,11 +1167,19 @@ document.addEventListener("DOMContentLoaded", () => {
       addMessage(msg, msg.type, msg.from);
     });
 
+    // Update list selection style
     document.querySelectorAll("#usersList li").forEach((li) => {
-      if (li.textContent === user) {
-        li.style.background = "#3a3a3a";
+      // Since we changed structure, we need to check textContent or a data attribute
+      // But textContent now includes InitialsNameOnline...
+      // Let's rely on the click handler or re-render logic.
+      // Actually, updateUserList re-renders everything on socket update.
+      // But loadChatHistory is called on click.
+      // Let's use a selector for the name span.
+      const nameSpan = li.querySelector(".list-name");
+      if (nameSpan && nameSpan.textContent === user) {
+        li.classList.add("selected");
       } else {
-        li.style.background = "";
+        li.classList.remove("selected");
       }
     });
   }
