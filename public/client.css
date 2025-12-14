@@ -459,12 +459,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 1; /* Ensure base z-index */
 }
 
 .video-wrapper video {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  z-index: 1; /* Video at bottom */
+  position: absolute; /* Ensure it doesn't push content */
+  top: 0;
+  left: 0;
 }
 
 .video-label {
@@ -492,8 +497,20 @@ body {
   justify-content: center;
   color: white;
   background: radial-gradient(circle at center, #2c3e50 0%, #1a1a1a 100%);
-  z-index: 10;
-  transition: opacity 0.3s ease;
+  z-index: 10; /* Strictly above video */
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.4s;
+}
+
+.audio-placeholder.fade-out {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.audio-placeholder.hidden {
+  display: none !important; /* Keep for initialization/hard hide */
 }
 
 .avatar-circle {
@@ -524,7 +541,11 @@ body {
 
 /* Local View Adjustments */
 .local .audio-placeholder {
-  background: #2c2c2c; /* Simple dark background for small view */
+  background: radial-gradient(
+    circle at center,
+    #34495e 0%,
+    #151515 100%
+  ); /* Matching premium feel */
 }
 
 .local .avatar-circle {

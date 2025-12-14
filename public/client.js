@@ -67,6 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const controlsBar = document.getElementById("controls-bar");
   const muteBtn = document.getElementById("muteBtn");
   const videoBtn = document.getElementById("videoBtn");
+  const flipCameraBtn = document.getElementById("flipCameraBtn");
   const toChatBtn = document.getElementById("toChatBtn");
   const hangupBtn = document.getElementById("hangupBtn");
   const backToUsersBtn = document.getElementById("backToUsersBtn");
@@ -309,10 +310,14 @@ document.addEventListener("DOMContentLoaded", () => {
           break;
         case "video-toggle":
           // Handle remote video toggle
+          const remoteAudioLabel = document.getElementById("remoteAudioLabel"); // Re-declare locally if needed or ensure global scope
+
           if (data.enabled) {
-            audioOnlyPlaceholder.classList.add("hidden");
+            audioOnlyPlaceholder.classList.add("fade-out");
+            // remoteVideo.classList.remove("hidden"); // Ensure video is visible? (It should be by default in video call)
           } else {
-            audioOnlyPlaceholder.classList.remove("hidden");
+            audioOnlyPlaceholder.classList.remove("fade-out");
+            audioOnlyPlaceholder.classList.remove("hidden"); // Just in case
             if (remoteAudioLabel) remoteAudioLabel.textContent = data.from;
             if (remoteAvatarCircle)
               remoteAvatarCircle.textContent = getInitials(data.from);
@@ -362,7 +367,57 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // --- PiP Swapping Logic ---
+  const localVideoWrapper = document.querySelector(".video-wrapper.local");
+  const remoteVideoWrapper = document.querySelector(".video-wrapper.remote");
+
+  if (localVideoWrapper && remoteVideoWrapper) {
+    localVideoWrapper.onclick = () => {
+      // Toggle 'local' and 'remote' classes to swap positions
+      // Note: We need to handle the video-label and specific styles
+      // A simpler way is to swap the video srcObjects?
+      // But the layout classes (.local is absolute, .remote is grid) matter.
+
+      // Let's swap the visual classes
+      if (localVideoWrapper.classList.contains("local")) {
+        localVideoWrapper.classList.remove("local");
+        localVideoWrapper.classList.add("remote-style-override"); // We need to fill screen
+
+        remoteVideoWrapper.classList.remove("remote"); // It was filling screen
+        remoteVideoWrapper.classList.add("local-style-override"); // Now it should be small
+
+        // Swap styles manually or use specific classes
+        // Actually, the cleanest way is to swap the CONTAINER classes
+        // But 'local' and 'remote' are hardcoded in HTML structure.
+        // Let's just swap class names.
+
+        localVideoWrapper.className = "video-wrapper remote";
+        remoteVideoWrapper.className = "video-wrapper local";
+      } else {
+        localVideoWrapper.className = "video-wrapper local";
+        remoteVideoWrapper.className = "video-wrapper remote";
+      }
+    };
+
+    // Also allow tapping the remote (now small) to swap back?
+    // Since we swapped classes, the 'click' listener is still on the DOM element.
+    // So clicking the now-small 'remoteVideoWrapper' (which has .local class) should trigger logic?
+    // Wait, the listener is on localVideoWrapper.
+    // If we swap classes, localVideoWrapper becomes big. Clicking it again (big) should swap back?
+    // Yes.
+
+    // We also need a listener on the remote wrapper to allow swapping back if that one is clicked while small
+    remoteVideoWrapper.onclick = () => {
+      if (remoteVideoWrapper.classList.contains("local")) {
+        // Swap back
+        localVideoWrapper.className = "video-wrapper local";
+        remoteVideoWrapper.className = "video-wrapper remote";
+      }
+    };
+  }
+
   // --- Call Logic ---
+  let currentFacingMode = "user";
 
   async function startMedia(type = "video") {
     try {
@@ -372,7 +427,7 @@ document.addEventListener("DOMContentLoaded", () => {
           noiseSuppression: true,
           autoGainControl: true,
         },
-        video: type === "video" ? true : false,
+        video: type === "video" ? { facingMode: currentFacingMode } : false,
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       return stream;
@@ -380,6 +435,11 @@ document.addEventListener("DOMContentLoaded", () => {
       showToast("Camera/Mic access denied", "danger");
       throw err;
     }
+  }
+
+  // Check for mobile to show flip button
+  if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    if (flipCameraBtn) flipCameraBtn.classList.remove("hidden");
   }
 
   startAudioCallBtn.onclick = () => startCall("audio");
@@ -409,9 +469,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const offer = await peerConnection.createOffer({
         offerToReceiveAudio: true,
-        offerToReceiveVideo: true, // Always offer video capability?
-        // If we want audio-only, we can set offerToReceiveVideo: false
-        // But usually better to offer and just not send track
+        offerToReceiveVideo: true,
       });
       await peerConnection.setLocalDescription(offer);
 
@@ -421,7 +479,7 @@ document.addEventListener("DOMContentLoaded", () => {
           to: selectedUser,
           from: myUserName,
           offer,
-          callType, // Custom field to hint receiver
+          callType,
         })
       );
 
@@ -429,6 +487,9 @@ document.addEventListener("DOMContentLoaded", () => {
       // switchView("video-interface"); // Removed immediate switch
       // Sidebar auto-switch removed
       updateCallUI(type);
+
+      // Ensure video toggle signal is sent initially if starting audio call or muted video?
+      // No, defaults are fine.
 
       // Show Calling Overlay
       callingOverlay.classList.remove("hidden");
@@ -438,17 +499,26 @@ document.addEventListener("DOMContentLoaded", () => {
         endCall(true);
       };
 
-      // addMessage(`Calling ${selectedUser}...`, "system"); // Optional
       remoteLabel.textContent = `Calling ${selectedUser}...`;
     } catch (err) {
       console.error(err);
     }
   }
 
+  // Explicitly reference the global elements in updateCallUI to be safe
   function updateCallUI(type) {
+    // Re-select if needed or rely on global constants defined at top
+    // const audioOnlyPlaceholder = document.getElementById("audioOnlyPlaceholder");
+
+    // Reset control buttons to default state first
+    muteBtn.classList.remove("danger");
+    videoBtn.classList.remove("danger");
+
     if (type === "audio") {
       // Remote
-      audioOnlyPlaceholder.classList.remove("hidden");
+      audioOnlyPlaceholder.classList.remove("hidden"); // Remove hard hide
+      audioOnlyPlaceholder.classList.remove("fade-out"); // Ensure visible
+
       remoteVideo.classList.add("hidden");
       remoteAudioLabel.textContent = selectedUser;
       if (remoteAvatarCircle)
@@ -456,25 +526,45 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Local
       localVideo.classList.add("hidden");
-      localAudioPlaceholder.classList.remove("hidden");
+      localAudioPlaceholder.classList.remove("hidden"); // Remove hard hide
+      localAudioPlaceholder.classList.remove("fade-out"); // Ensure visible
+
       if (localAvatarCircle)
         localAvatarCircle.textContent = getInitials(myUserName);
 
       // Controls
       videoBtn.classList.add("hidden");
+      // Mute button stays neutral unless actually muted (handled by track state check if needed)
     } else {
       // Remote
-      audioOnlyPlaceholder.classList.add("hidden");
+      audioOnlyPlaceholder.classList.remove("hidden"); // Ensure it exists in DOM
+      audioOnlyPlaceholder.classList.add("fade-out"); // Fade out to show video
       remoteVideo.classList.remove("hidden");
 
       // Local
       localVideo.classList.remove("hidden");
-      localAudioPlaceholder.classList.add("hidden");
+      localAudioPlaceholder.classList.remove("hidden"); // Ensure it exists in DOM
+      localAudioPlaceholder.classList.add("fade-out"); // Fade out to show video
+
       if (localAvatarCircle)
         localAvatarCircle.textContent = getInitials(myUserName);
 
       // Controls
       videoBtn.classList.remove("hidden");
+
+      // Check track states to update buttons correctly
+      const stream = localVideo.srcObject;
+      if (stream) {
+        const audioTrack = stream.getAudioTracks()[0];
+        if (audioTrack && !audioTrack.enabled) muteBtn.classList.add("danger");
+
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack && !videoTrack.enabled) {
+          videoBtn.classList.add("danger");
+          // If video started disabled (e.g. from a previous state or weird init), ensure avatar is shown
+          localAudioPlaceholder.classList.remove("fade-out");
+        }
+      }
     }
   }
 
@@ -818,6 +908,40 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
+  if (flipCameraBtn) {
+    flipCameraBtn.onclick = async () => {
+      if (callType !== "video") return;
+
+      currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
+
+      // Stop existing tracks
+      const oldStream = localVideo.srcObject;
+      if (oldStream) {
+        oldStream.getTracks().forEach((t) => t.stop());
+      }
+
+      try {
+        const newStream = await startMedia("video");
+        localVideo.srcObject = newStream;
+        localVideo.play().catch(() => {});
+
+        // Replace track in PeerConnection
+        if (peerConnection) {
+          const videoTrack = newStream.getVideoTracks()[0];
+          const sender = peerConnection
+            .getSenders()
+            .find((s) => s.track.kind === "video");
+          if (sender) {
+            sender.replaceTrack(videoTrack);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to flip camera:", err);
+        showToast("Failed to switch camera", "danger");
+      }
+    };
+  }
+
   muteBtn.onclick = () => {
     const stream = localVideo.srcObject;
     if (stream) {
@@ -843,9 +967,9 @@ document.addEventListener("DOMContentLoaded", () => {
         );
         if (localAudioPlaceholder) {
           if (videoTrack.enabled) {
-            localAudioPlaceholder.classList.add("hidden");
+            localAudioPlaceholder.classList.add("fade-out");
           } else {
-            localAudioPlaceholder.classList.remove("hidden");
+            localAudioPlaceholder.classList.remove("fade-out");
           }
         }
 
