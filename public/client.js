@@ -20,7 +20,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Sidebar
   const sidebar = document.getElementById("sidebar");
-  // const closeSidebarBtn = document.getElementById("closeSidebarBtn"); // Removed
   const usersPanel = document.getElementById("usersPanel");
   const usersListEl = document.getElementById("usersList");
 
@@ -140,8 +139,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Sidebar Tab logic removed - Sidebar is always Users
-
   if (backToUsersBtn) {
     backToUsersBtn.onclick = () => {
       sidebar.classList.remove("closed");
@@ -153,12 +150,6 @@ document.addEventListener("DOMContentLoaded", () => {
       sidebar.classList.remove("closed");
     };
   }
-
-  /*
-  if (closeSidebarBtn) {
-     closeSidebarBtn.onclick = () => sidebar.classList.add("closed");
-  }
-  */
 
   // --- Helper Functions ---
 
@@ -345,14 +336,13 @@ document.addEventListener("DOMContentLoaded", () => {
           break;
         case "video-toggle":
           // Handle remote video toggle
-          const remoteAudioLabel = document.getElementById("remoteAudioLabel"); // Re-declare locally if needed or ensure global scope
+          const remoteAudioLabel = document.getElementById("remoteAudioLabel");
 
           if (data.enabled) {
             audioOnlyPlaceholder.classList.add("fade-out");
-            // remoteVideo.classList.remove("hidden"); // Ensure video is visible? (It should be by default in video call)
           } else {
             audioOnlyPlaceholder.classList.remove("fade-out");
-            audioOnlyPlaceholder.classList.remove("hidden"); // Just in case
+            audioOnlyPlaceholder.classList.remove("hidden");
             if (remoteAudioLabel) remoteAudioLabel.textContent = data.from;
             if (remoteAvatarCircle)
               remoteAvatarCircle.textContent = getInitials(data.from);
@@ -362,8 +352,6 @@ document.addEventListener("DOMContentLoaded", () => {
           if (data.from !== selectedUser) {
             showToast(`New message from ${data.from}`, "info");
           }
-          // Only show in chat if it's from the selected user or we want global chat
-          // For now, let's just append to chat log
           addMessage(data.text, "other", data.from);
           break;
         default:
@@ -394,8 +382,6 @@ document.addEventListener("DOMContentLoaded", () => {
         switchView("chat-interface");
         // Hide sidebar on mobile
         sidebar.classList.add("closed");
-        // Clear chat or keep history? keeping history for now (global buffer)
-        // Ideally we filter by user, but let's keep it simple
         showToast(`Chatting with ${name}`, "info");
       };
       usersListEl.appendChild(li);
@@ -408,23 +394,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (localVideoWrapper && remoteVideoWrapper) {
     localVideoWrapper.onclick = () => {
-      // Toggle 'local' and 'remote' classes to swap positions
-      // Note: We need to handle the video-label and specific styles
-      // A simpler way is to swap the video srcObjects?
-      // But the layout classes (.local is absolute, .remote is grid) matter.
-
-      // Let's swap the visual classes
       if (localVideoWrapper.classList.contains("local")) {
         localVideoWrapper.classList.remove("local");
-        localVideoWrapper.classList.add("remote-style-override"); // We need to fill screen
+        localVideoWrapper.classList.add("remote-style-override");
 
-        remoteVideoWrapper.classList.remove("remote"); // It was filling screen
-        remoteVideoWrapper.classList.add("local-style-override"); // Now it should be small
-
-        // Swap styles manually or use specific classes
-        // Actually, the cleanest way is to swap the CONTAINER classes
-        // But 'local' and 'remote' are hardcoded in HTML structure.
-        // Let's just swap class names.
+        remoteVideoWrapper.classList.remove("remote");
+        remoteVideoWrapper.classList.add("local-style-override");
 
         localVideoWrapper.className = "video-wrapper remote";
         remoteVideoWrapper.className = "video-wrapper local";
@@ -444,14 +419,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     };
 
-    // Also allow tapping the remote (now small) to swap back?
-    // Since we swapped classes, the 'click' listener is still on the DOM element.
-    // So clicking the now-small 'remoteVideoWrapper' (which has .local class) should trigger logic?
-    // Wait, the listener is on localVideoWrapper.
-    // If we swap classes, localVideoWrapper becomes big. Clicking it again (big) should swap back?
-    // Yes.
-
-    // We also need a listener on the remote wrapper to allow swapping back if that one is clicked while small
     remoteVideoWrapper.onclick = () => {
       if (remoteVideoWrapper.classList.contains("local")) {
         // Swap back
@@ -464,6 +431,86 @@ document.addEventListener("DOMContentLoaded", () => {
           remoteVideoLabel.textContent = selectedUser || "Remote";
       }
     };
+  }
+
+  // --- Refactored Call Helpers ---
+
+  function initializeCallSession(user, type, isIncoming = false) {
+    selectedUser = user;
+    callType = type;
+    isCallActive = true;
+
+    // Reset UI State
+    muteBtn.classList.remove("danger");
+    videoBtn.classList.remove("danger");
+
+    // Set Labels
+    if (remoteVideoLabel) remoteVideoLabel.textContent = user;
+    if (remoteAudioLabel) remoteAudioLabel.textContent = user;
+    if (remoteAvatarCircle) remoteAvatarCircle.textContent = getInitials(user);
+
+    // Local Labels
+    if (localVideoLabel) localVideoLabel.textContent = "You";
+    if (localAudioLabel) localAudioLabel.textContent = "You";
+    if (localAvatarCircle)
+      localAvatarCircle.textContent = getInitials(myUserName);
+
+    // Switch View
+    switchView("video-interface");
+    updateCallUI(type);
+
+    // Handle Overlays
+    if (!isIncoming) {
+      callingOverlay.classList.remove("hidden");
+      callingText.textContent = `Calling ${user}...`;
+    } else {
+      // Incoming call accepted
+      callingOverlay.classList.add("hidden");
+      incomingModal.classList.add("hidden");
+      incomingModal.classList.remove("video-preview-mode");
+    }
+  }
+
+  function setupPeerConnection(stream) {
+    if (peerConnection) {
+      peerConnection.close();
+    }
+    peerConnection = new RTCPeerConnection(config);
+
+    // Add Tracks
+    if (stream) {
+      stream
+        .getTracks()
+        .forEach((track) => peerConnection.addTrack(track, stream));
+    }
+
+    // Event Handlers
+    peerConnection.ontrack = (e) => {
+      remoteVideo.srcObject = e.streams[0];
+      remoteVideo.play().catch(() => {});
+    };
+
+    peerConnection.onicecandidate = (e) => {
+      if (e.candidate && selectedUser) {
+        ws.send(
+          JSON.stringify({
+            type: "ice",
+            ice: e.candidate,
+            to: selectedUser,
+            from: myUserName,
+          })
+        );
+      }
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+      const s = peerConnection.connectionState;
+      if (["failed", "disconnected", "closed"].includes(s)) {
+        endCall(false);
+      }
+    };
+
+    return peerConnection;
   }
 
   // --- Call Logic ---
@@ -497,127 +544,89 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function startCall(type) {
     if (!selectedUser) return;
-
-    // Prevent concurrent calls
     if (isCallActive) {
       showToast("You are already in a call!", "danger");
       return;
     }
 
-    callType = type;
-    isCallActive = true; // Set active state
-
     try {
+      // 1. Get Media
       const stream = await startMedia(type);
       localVideo.srcObject = stream;
       localVideo.play().catch(() => {});
 
-      // Ensure UI mute button is reset
-      muteBtn.classList.remove("danger");
+      // 2. Initialize Session UI
+      initializeCallSession(selectedUser, type, false);
 
-      createPeerConnection(stream, true);
+      // 3. Setup PC
+      setupPeerConnection(stream);
 
+      // 4. Create Offer
       const offer = await peerConnection.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true,
       });
       await peerConnection.setLocalDescription(offer);
 
+      // 5. Send Offer
       ws.send(
         JSON.stringify({
           type: "offer",
           to: selectedUser,
           from: myUserName,
           offer,
-          callType,
+          callType: type,
         })
       );
 
-      // Switch UI
-      // switchView("video-interface"); // Removed immediate switch
-      // Sidebar auto-switch removed
-      updateCallUI(type);
-
-      // Ensure video toggle signal is sent initially if starting audio call or muted video?
-      // No, defaults are fine.
-
-      // Show Calling Overlay
-      callingOverlay.classList.remove("hidden");
-      callingText.textContent = `Calling ${selectedUser}...`;
-
-      cancelCallBtn.onclick = () => {
-        endCall(true);
-      };
-
-      if (remoteVideoLabel) remoteVideoLabel.textContent = selectedUser;
-      if (remoteAudioLabel) remoteAudioLabel.textContent = selectedUser;
+      // Cancel Handler
+      cancelCallBtn.onclick = () => endCall(true);
     } catch (err) {
       console.error(err);
+      showToast("Failed to start call", "danger");
+      endCall(false);
     }
   }
 
-  // Explicitly reference the global elements in updateCallUI to be safe
   function updateCallUI(type) {
-    // Re-select if needed or rely on global constants defined at top
-    // const audioOnlyPlaceholder = document.getElementById("audioOnlyPlaceholder");
-
     // Reset control buttons to default state first
     muteBtn.classList.remove("danger");
     videoBtn.classList.remove("danger");
 
     if (type === "audio") {
       // Remote
-      audioOnlyPlaceholder.classList.remove("hidden"); // Remove hard hide
-      audioOnlyPlaceholder.classList.remove("fade-out"); // Ensure visible
+      audioOnlyPlaceholder.classList.remove("hidden");
+      audioOnlyPlaceholder.classList.remove("fade-out");
 
       remoteVideo.classList.add("hidden");
-      if (remoteAudioLabel) remoteAudioLabel.textContent = selectedUser;
-      if (remoteVideoLabel) remoteVideoLabel.textContent = selectedUser;
-      if (remoteAvatarCircle)
-        remoteAvatarCircle.textContent = getInitials(selectedUser);
 
       // Local
       localVideo.classList.add("hidden");
-      localAudioPlaceholder.classList.remove("hidden"); // Remove hard hide
-      localAudioPlaceholder.classList.remove("fade-out"); // Ensure visible
-
-      if (localAudioLabel) localAudioLabel.textContent = "You";
-      if (localVideoLabel) localVideoLabel.textContent = "You";
-      if (localAvatarCircle)
-        localAvatarCircle.textContent = getInitials(myUserName);
+      localAudioPlaceholder.classList.remove("hidden");
+      localAudioPlaceholder.classList.remove("fade-out");
 
       // Controls
       videoBtn.classList.add("hidden");
-      if (flipCameraBtn) flipCameraBtn.classList.add("hidden"); // Hide flip in audio mode
-      // Mute button stays neutral unless actually muted (handled by track state check if needed)
+      if (flipCameraBtn) flipCameraBtn.classList.add("hidden");
     } else {
       // Remote
-      audioOnlyPlaceholder.classList.remove("hidden"); // Ensure it exists in DOM
-      audioOnlyPlaceholder.classList.add("fade-out"); // Fade out to show video
+      audioOnlyPlaceholder.classList.remove("hidden");
+      audioOnlyPlaceholder.classList.add("fade-out");
       remoteVideo.classList.remove("hidden");
-
-      if (remoteVideoLabel) remoteVideoLabel.textContent = selectedUser;
-      if (remoteAudioLabel) remoteAudioLabel.textContent = selectedUser;
 
       // Local
       localVideo.classList.remove("hidden");
-      localAudioPlaceholder.classList.remove("hidden"); // Ensure it exists in DOM
-      localAudioPlaceholder.classList.add("fade-out"); // Fade out to show video
-
-      if (localVideoLabel) localVideoLabel.textContent = "You";
-      if (localAudioLabel) localAudioLabel.textContent = "You";
-      if (localAvatarCircle)
-        localAvatarCircle.textContent = getInitials(myUserName);
+      localAudioPlaceholder.classList.remove("hidden");
+      localAudioPlaceholder.classList.add("fade-out");
 
       // Controls
       videoBtn.classList.remove("hidden");
 
-      // Show flip button only on mobile and video mode
       if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
         if (flipCameraBtn) flipCameraBtn.classList.remove("hidden");
       }
 
-      // Check track states to update buttons correctly
+      // Check track states
       const stream = localVideo.srcObject;
       if (stream) {
         const audioTrack = stream.getAudioTracks()[0];
@@ -626,7 +635,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const videoTrack = stream.getVideoTracks()[0];
         if (videoTrack && !videoTrack.enabled) {
           videoBtn.classList.add("danger");
-          // If video started disabled (e.g. from a previous state or weird init), ensure avatar is shown
           localAudioPlaceholder.classList.remove("fade-out");
         }
       }
@@ -635,9 +643,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Handle Offer
   async function handleOffer(data) {
-    // Prevent receiving calls if already in one
     if (isCallActive) {
-      // Auto-reject with busy signal
       ws.send(
         JSON.stringify({
           type: "reject",
@@ -653,7 +659,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const incomingCallType = data.callType || "video";
     callType = incomingCallType;
 
-    // Update Caller Name and Type
+    // Update Caller Name
     callerNameEl.textContent = data.from;
     const callTypeEl = document.getElementById("incoming-call-type");
     if (callTypeEl) {
@@ -662,7 +668,6 @@ document.addEventListener("DOMContentLoaded", () => {
           ? "Incoming Voice Call"
           : "Incoming Video Call";
     } else {
-      // Fallback if element doesn't exist yet (we will add it to HTML)
       callerNameEl.textContent = `${data.from} - ${
         incomingCallType === "audio"
           ? "Incoming Voice Call"
@@ -670,7 +675,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }`;
     }
 
-    // Show Modal
     incomingModal.classList.remove("hidden");
 
     // Play Ringtone
@@ -682,39 +686,27 @@ document.addEventListener("DOMContentLoaded", () => {
       if (playPromise !== undefined) {
         playPromise.catch((error) => {
           console.warn("Ringtone playback failed (autoplay policy?):", error);
-          // Fallback: Show a highly visible toast or vibration if possible
           if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
         });
       }
     } catch (e) {
-      console.warn("Ringtone playback failed (autoplay policy?):", e);
+      console.warn("Ringtone playback failed:", e);
     }
 
-    // If Video Call, start preview immediately
+    // Video Preview Logic
     if (incomingCallType === "video") {
       try {
-        // Force switch to video view (crucial for mobile)
-        // But we are in modal mode. We just need to ensure background is correct?
-        // Actually, wait until answer to switch view fully?
-        // No, for preview we need to see it.
-
-        // If we are on placeholder, we need to ensure video interface is visible behind modal?
-        // Yes.
-
-        // Update chat context immediately for seamless transition later
         if (chatUserName) chatUserName.textContent = selectedUser;
 
         switchView("video-interface");
         updateCallUI("video");
 
-        // Make modal transparent for preview
         incomingModal.classList.add("video-preview-mode");
 
         const stream = await startMedia("video");
         localVideo.srcObject = stream;
         localVideo.play().catch(() => {});
 
-        // Ensure local avatar is hidden since we have video
         document
           .getElementById("localAudioPlaceholder")
           .classList.add("fade-out");
@@ -722,47 +714,30 @@ document.addEventListener("DOMContentLoaded", () => {
         console.error("Failed to start video preview", err);
       }
     } else {
-      // Audio call - ensure modal is opaque
       incomingModal.classList.remove("video-preview-mode");
-
-      // Also update chat user name for audio calls
       if (chatUserName) chatUserName.textContent = selectedUser;
-
-      // IMPORTANT: For audio calls, we MUST also switch view to ensure we are not stuck on Users List
       switchView("video-interface");
       updateCallUI("audio");
     }
 
     answerCallBtn.onclick = async () => {
+      // Clean up Ringtone
       incomingModal.classList.add("hidden");
-      incomingModal.classList.remove("video-preview-mode"); // Reset
+      incomingModal.classList.remove("video-preview-mode");
       remoteRingtoneElement.muted = true;
       remoteRingtoneElement.pause();
-      remoteRingtoneElement.currentTime = 0; // Reset
+      remoteRingtoneElement.currentTime = 0;
 
-      // Ensure the user context is set so chat history can be loaded later
       if (selectedUser) {
         loadChatHistory(selectedUser);
       }
-
-      // Ensure we are definitely on the right view
-      if (incomingCallType === "video") {
-        switchView("video-interface");
-      } else {
-        // For audio, we also use video interface but in audio mode
-        switchView("video-interface");
-        updateCallUI("audio");
-      }
-
-      // Also ensure the sidebar is "closed" (mobile) or chat is active context
-      // On mobile, switchView handles hiding other main-views.
 
       await acceptCall(data);
     };
 
     rejectCallBtn.onclick = () => {
       incomingModal.classList.add("hidden");
-      incomingModal.classList.remove("video-preview-mode"); // Reset
+      incomingModal.classList.remove("video-preview-mode");
       remoteRingtoneElement.muted = true;
       remoteRingtoneElement.pause();
       rejectCall(data);
@@ -772,45 +747,42 @@ document.addEventListener("DOMContentLoaded", () => {
   async function acceptCall(data) {
     try {
       showToast("Connecting...", "info");
-      isCallActive = true; // Set active state
 
+      // 1. Ensure Media
       let stream = localVideo.srcObject;
-
-      // If we don't have a stream (Audio call) or need to upgrade/match type
       if (!stream) {
         try {
           stream = await startMedia(callType);
           localVideo.srcObject = stream;
-          // Only play if it's video, or if we want to ensure audio track is active?
-          // localVideo is muted, so playing it is fine.
           await localVideo.play().catch(() => {});
         } catch (mediaErr) {
           console.error("Failed to start media in acceptCall:", mediaErr);
           showToast("Could not access Camera/Mic", "danger");
-          return; // Abort if media fails
+          return;
         }
       }
 
-      // Switch UI BEFORE creating peer connection to ensure user sees something
-      switchView("video-interface");
-      updateCallUI(callType);
+      // 2. Initialize Session UI (Incoming = true)
+      initializeCallSession(data.from, callType, true);
 
-      // Ensure UI mute button is reset
-      muteBtn.classList.remove("danger");
+      // 3. Setup PC
+      setupPeerConnection(stream);
 
-      createPeerConnection(stream, false);
-
+      // 4. Set Remote Desc
       await peerConnection.setRemoteDescription(
         new RTCSessionDescription(data.offer)
       );
 
+      // 5. Add Candidates
       while (pendingRemoteCandidates.length) {
         await peerConnection.addIceCandidate(pendingRemoteCandidates.shift());
       }
 
+      // 6. Create Answer
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
 
+      // 7. Send Answer
       ws.send(
         JSON.stringify({
           type: "answer",
@@ -820,20 +792,12 @@ document.addEventListener("DOMContentLoaded", () => {
         })
       );
 
-      // switchView("video-interface"); // Moved up
-      // switchSidebarTab("chat");
-      // updateCallUI(callType); // Moved up
-
-      // Start Timer
+      // 8. Start Timer
       startCallTimer();
-
       addMessage(`Connected to ${data.from}`, "system");
-      if (remoteVideoLabel) remoteVideoLabel.textContent = data.from;
-      if (remoteAudioLabel) remoteAudioLabel.textContent = data.from;
     } catch (err) {
       console.error("Error in acceptCall:", err);
       showToast("Failed to accept call: " + err.message, "danger");
-      // Clean up if failed
       endCall(false);
     }
   }
@@ -844,17 +808,13 @@ document.addEventListener("DOMContentLoaded", () => {
     );
     showToast("Call declined", "info");
 
-    // Stop preview tracks if any
     if (localVideo.srcObject) {
       localVideo.srcObject.getTracks().forEach((t) => t.stop());
       localVideo.srcObject = null;
     }
 
-    // Reset view to chat
     switchView("chat-interface");
-    selectedUser = null; // Or keep? User might want to chat.
-    // If we reject, we probably want to stay on the chat screen with that user or go back.
-    // Since we set selectedUser in handleOffer, let's keep it so they can chat.
+    // Keep selectedUser for chat
   }
 
   async function handleAnswer(data) {
@@ -865,16 +825,12 @@ document.addEventListener("DOMContentLoaded", () => {
       while (pendingRemoteCandidates.length) {
         await peerConnection.addIceCandidate(pendingRemoteCandidates.shift());
       }
-      // Start Timer
       startCallTimer();
 
-      // Hide Calling Overlay and Switch View
       callingOverlay.classList.add("hidden");
       switchView("video-interface");
 
       showToast("Call established", "success");
-      if (remoteVideoLabel) remoteVideoLabel.textContent = selectedUser;
-      if (remoteAudioLabel) remoteAudioLabel.textContent = selectedUser;
     } catch (err) {
       console.error(err);
     }
@@ -882,14 +838,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function handleReject(data) {
     showToast(`${data.from} rejected the call`, "danger");
-    callingOverlay.classList.add("hidden"); // Hide overlay
+    callingOverlay.classList.add("hidden");
     endCall(false);
   }
 
   function handleHangup(data) {
-    // Check if it's the current caller to stop ringing
     if (!isCallActive && incomingModal.classList.contains("hidden") === false) {
-      // Incoming call was cancelled before answering
       incomingModal.classList.add("hidden");
       remoteRingtoneElement.muted = true;
       remoteRingtoneElement.pause();
@@ -915,38 +869,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function createPeerConnection(stream, isCaller = false) {
-    peerConnection = new RTCPeerConnection(config);
-    stream
-      .getTracks()
-      .forEach((track) => peerConnection.addTrack(track, stream));
-
-    peerConnection.ontrack = (e) => {
-      remoteVideo.srcObject = e.streams[0];
-      remoteVideo.play().catch(() => {});
-    };
-
-    peerConnection.onicecandidate = (e) => {
-      if (e.candidate && selectedUser) {
-        ws.send(
-          JSON.stringify({
-            type: "ice",
-            ice: e.candidate,
-            to: selectedUser,
-            from: myUserName,
-          })
-        );
-      }
-    };
-
-    peerConnection.onconnectionstatechange = () => {
-      const s = peerConnection.connectionState;
-      if (["failed", "disconnected", "closed"].includes(s)) {
-        endCall(false);
-      }
-    };
-  }
-
   function endCall(sendSignal = true) {
     if (sendSignal && selectedUser && isCallActive) {
       ws.send(
@@ -954,13 +876,11 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     }
 
-    // Capture duration before stopping timer
     const durationText = callTimerEl.textContent;
 
-    isCallActive = false; // Reset active state
-    stopCallTimer(); // Stop timer
+    isCallActive = false;
+    stopCallTimer();
 
-    // Stop Media Tracks
     if (localVideo.srcObject) {
       localVideo.srcObject.getTracks().forEach((track) => track.stop());
       localVideo.srcObject = null;
@@ -970,7 +890,6 @@ document.addEventListener("DOMContentLoaded", () => {
       remoteVideo.srcObject = null;
     }
 
-    // Hide overlays
     if (callingOverlay) callingOverlay.classList.add("hidden");
     if (incomingModal) incomingModal.classList.add("hidden");
     if (incomingModal) incomingModal.classList.remove("video-preview-mode");
@@ -980,38 +899,28 @@ document.addEventListener("DOMContentLoaded", () => {
       peerConnection = null;
     }
 
-    // Show Call Ended Overlay
     if (callEndedOverlay && durationText !== "00:00") {
       callEndedDuration.textContent = durationText;
       callEndedOverlay.classList.remove("hidden");
 
       setTimeout(() => {
         callEndedOverlay.classList.add("hidden");
-        switchView("chat-interface"); // Return to chat
-        // Ensure we don't clear selectedUser here so chat remains active
-
-        // Force reload chat history to ensure context is correct
+        switchView("chat-interface");
         if (selectedUser) {
           loadChatHistory(selectedUser);
         }
       }, 2000);
     } else {
-      // If no duration (cancelled call), just switch back immediately or stay on chat
-      // If we were calling, we want to go back to chat.
       switchView("chat-interface");
     }
 
-    // Do NOT nullify selectedUser here.
-    // selectedUser = null;
-    callType = "video"; // Reset default
-    currentFacingMode = "user"; // Reset camera
+    callType = "video";
+    currentFacingMode = "user";
 
-    // Reset UI
     if (remoteVideoLabel) remoteVideoLabel.textContent = "Remote";
     if (remoteAudioLabel) remoteAudioLabel.textContent = "User";
     if (remoteAvatarCircle) remoteAvatarCircle.textContent = "";
 
-    // Reset buttons
     muteBtn.classList.remove("danger");
     videoBtn.classList.remove("danger");
   }
@@ -1019,31 +928,24 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- Chat Logic ---
 
   async function loadChatHistory(user) {
-    if (!user) return; // Guard against null user
+    if (!user) return;
 
     chatUserName.textContent = user;
     mainMessages.innerHTML = "";
 
-    // Also ensure sidebar selection is updated visually?
-    // Not strictly necessary but good for consistency
     document.querySelectorAll("#usersList li").forEach((li) => {
       if (li.textContent === user) {
-        // Add active class if we had one
-        li.style.background = "#3a3a3a"; // Highlight
+        li.style.background = "#3a3a3a";
       } else {
         li.style.background = "";
       }
     });
-
-    try {
-    } catch (e) {}
   }
 
   function sendChat(inputEl) {
     const text = inputEl.value.trim();
     if (!text || !selectedUser) return;
 
-    // Send via WebSocket
     ws.send(
       JSON.stringify({
         type: "chat",
@@ -1061,10 +963,6 @@ document.addEventListener("DOMContentLoaded", () => {
   mainChatInput.onkeydown = (e) => {
     if (e.key === "Enter") sendChat(mainChatInput);
   };
-
-  // Sidebar chat logic removed
-
-  // --- Control Buttons ---
 
   if (toChatBtn) {
     toChatBtn.onclick = () => {
@@ -1084,7 +982,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
 
-      // Stop existing tracks
       const oldStream = localVideo.srcObject;
       if (oldStream) {
         oldStream.getTracks().forEach((t) => t.stop());
@@ -1095,7 +992,6 @@ document.addEventListener("DOMContentLoaded", () => {
         localVideo.srcObject = newStream;
         localVideo.play().catch(() => {});
 
-        // Replace track in PeerConnection
         if (peerConnection) {
           const videoTrack = newStream.getVideoTracks()[0];
           const sender = peerConnection
@@ -1131,7 +1027,6 @@ document.addEventListener("DOMContentLoaded", () => {
         videoTrack.enabled = !videoTrack.enabled;
         videoBtn.classList.toggle("danger", !videoTrack.enabled);
 
-        // Toggle Local Avatar
         const localAudioPlaceholder = document.getElementById(
           "localAudioPlaceholder"
         );
@@ -1143,7 +1038,6 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
 
-        // Send Signal to Remote Peer
         if (isCallActive && selectedUser) {
           ws.send(
             JSON.stringify({
