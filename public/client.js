@@ -1,5 +1,6 @@
 let ws;
 let peerConnection;
+let dataChannel; // For peer-to-peer file and text transfer
 
 const AppState = {
   myUserName: null,
@@ -77,6 +78,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const mainMessages = document.getElementById("mainMessages");
   const mainChatInput = document.getElementById("mainChatInput");
   const mainSendBtn = document.getElementById("mainSendBtn");
+  const fileUploadBtn = document.getElementById("uploadFileBtn");
+  let selectedFile = null;
 
   // Call Status & Timer
   const callStatusBar = document.getElementById("call-status-bar");
@@ -176,9 +179,20 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (backToUsersBtn) {
+    //should also be used to go back to the welcome screen from a chat window or to the call screen if a call is active
     backToUsersBtn.onclick = () => {
-      sidebar.classList.remove("closed");
+      if (AppState.isCallActive) {
+        switchView("video-interface");
+      } else {
+        switchView("placeholder-view");
+      }
     };
+
+    // backToUsersBtn.onclick = () => {
+    //   sidebar.classList.remove("closed");
+    //   switchView("placeholder-view");
+    //   AppState.selectedUser = null;
+    // };
   }
 
   if (openSidebarBtn) {
@@ -701,6 +715,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     };
 
+    // Handle incoming data channel (for callee)
+    peerConnection.ondatachannel = (event) => {
+      setupDataChannel(event.channel);
+    };
+
     return peerConnection;
   }
 
@@ -751,6 +770,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // 3. Setup PC
       setupPeerConnection(stream);
+      // Create data channel for caller and attach handlers
+      try {
+        dataChannel = peerConnection.createDataChannel("chat");
+        setupDataChannel(dataChannel);
+      } catch (e) {
+        console.warn("Failed to create data channel:", e);
+      }
 
       // 4. Create Offer
       const offer = await peerConnection.createOffer({
@@ -829,6 +855,83 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
     }
+  }
+
+  // Setup data channel handlers (reusable)
+  function setupDataChannel(channel) {
+    if (!channel) return;
+    dataChannel = channel;
+    try {
+      channel.binaryType = "arraybuffer";
+    } catch (e) {}
+
+    channel.onopen = () => {
+      console.log("DataChannel open");
+    };
+
+    channel.onclose = () => {
+      console.log("DataChannel closed");
+    };
+
+    channel.onerror = (err) => {
+      console.error("DataChannel error:", err);
+    };
+
+    channel.onmessage = (e) => {
+      // Handle both text and binary
+      if (typeof e.data === "string") {
+        let msg = null;
+        try {
+          msg = JSON.parse(e.data);
+        } catch (err) {
+          console.warn("Received non-JSON string on data channel", e.data);
+          addMessage(e.data, "other");
+          return;
+        }
+
+        if (msg.type === "file-start") {
+          window.incomingFile = {
+            name: msg.fileName,
+            type: msg.fileType,
+            size: msg.fileSize,
+            chunks: [],
+            received: 0,
+            total: msg.totalChunks,
+          };
+          return;
+        }
+
+        if (msg.type === "file-end") {
+          if (window.incomingFile) {
+            const blob = new Blob(window.incomingFile.chunks, {
+              type: window.incomingFile.type,
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = window.incomingFile.name;
+            a.click();
+            addMessage(
+              `📎 Received file: ${window.incomingFile.name}`,
+              "other"
+            );
+            window.incomingFile = null;
+          }
+          return;
+        }
+
+        // Other string messages (chat)
+        if (msg.type === "chat") {
+          addMessage(msg.text, "other");
+        }
+      } else {
+        // Binary chunk
+        if (window.incomingFile) {
+          window.incomingFile.chunks.push(e.data);
+          window.incomingFile.received++;
+        }
+      }
+    };
   }
 
   // Handle Offer
@@ -1207,10 +1310,194 @@ document.addEventListener("DOMContentLoaded", () => {
     inputEl.value = "";
   }
 
-  mainSendBtn.onclick = () => sendChat(mainChatInput);
-  mainChatInput.onkeydown = (e) => {
-    if (e.key === "Enter") sendChat(mainChatInput);
+  // allow upload and sending of files in chat
+  fileUploadBtn.onclick = () => {
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.onchange = () => {
+      selectedFile = fileInput.files[0];
+      if (selectedFile) {
+        // Show file in chat input area
+        const chatInput = document.getElementById("mainChatInput");
+        chatInput.value = `📎 ${selectedFile.name} (${formatFileSize(
+          selectedFile.size
+        )})`;
+        chatInput.disabled = false;
+        console.log("File selected:", selectedFile.name);
+      }
+    };
+    fileInput.click();
   };
+
+  function formatFileSize(bytes) {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+  }
+
+  // fileUploadBtn.onclick = () => {
+  //   console.log("File upload clicked");
+  //   const fileInput = document.createElement("input");
+  //   fileInput.type = "file";
+  //   fileInput.onchange = () => {
+  //     const file = fileInput.files[0];
+  //     if (file && AppState.selectedUser) {
+  //       const reader = new FileReader();
+  //       reader.onload = () => {
+  //         const arrayBuffer = reader.result;
+
+  //         // Check WebSocket is ready
+  //         if (ws.readyState !== ws.OPEN) {
+  //           console.error("WebSocket not connected");
+  //           addMessage("Connection lost. Cannot send file.", "system");
+  //           return;
+  //         }
+
+  //         ws.send(
+  //           JSON.stringify({
+  //             type: "file",
+  //             to: AppState.selectedUser,
+  //             from: AppState.myUserName,
+  //             fileName: file.name,
+  //             fileType: file.type,
+  //             fileSize: file.size,
+  //             fileData: Array.from(new Uint8Array(arrayBuffer)),
+  //           })
+  //         );
+
+  //         ChatStore.saveMessage(AppState.selectedUser, {
+  //           text: `Sent file: ${file.name}`,
+  //           type: "me",
+  //           from: AppState.myUserName,
+  //         });
+
+  //         addMessage(`Sent file: ${file.name}`, "me");
+  //       };
+  //       reader.readAsArrayBuffer(file);
+  //     }
+  //   };
+
+  //   // THIS IS THE KEY LINE - trigger the file picker
+  //   fileInput.click();
+  // };
+
+  // //allow upload and sending of files in chat
+  // fileUploadBtn.onclick = () => {
+  //   console.log("File upload clicked");
+  //   const fileInput = document.createElement("input");
+  //   fileInput.type = "file";
+  //   fileInput.onchange = () => {
+  //     const file = fileInput.files[0];
+  //     if (file && AppState.selectedUser) {
+  //       const reader = new FileReader();
+  //       reader.onload = () => {
+  //         const arrayBuffer = reader.result;
+  //         ws.send(
+  //           JSON.stringify({
+  //             type: "file",
+  //             to: AppState.selectedUser,
+  //             from: AppState.myUserName,
+  //             fileName: file.name,
+  //             fileType: file.type,
+  //             fileData: Array.from(new Uint8Array(arrayBuffer)),
+  //           })
+  //         );
+
+  //         ChatStore.saveMessage(AppState.selectedUser, {
+  //           text: `Sent file: ${file.name}`,
+  //           type: "me",
+  //           from: AppState.myUserName,
+  //         });
+
+  //         addMessage(`Sent file: ${file.name}`, "me");
+  //       };
+  //       reader.readAsArrayBuffer(file);
+  //     }
+  //   };
+  // };
+
+  // on click mainSendBtn or enter key, send chat message or file if selected
+  mainSendBtn.onclick = () => {
+    if (selectedFile) {
+      sendFileViaDataChannel(selectedFile);
+      // Clear selected file
+      selectedFile = null;
+      mainChatInput.value = "";
+      mainChatInput.disabled = false;
+      return;
+    } else {
+      sendChat(mainChatInput);
+    }
+  };
+  mainChatInput.onkeydown = (e) => {
+    if (e.key === "Enter") {
+      if (selectedFile) {
+        sendFileViaDataChannel(selectedFile);
+
+        selectedFile = null;
+        mainChatInput.value = "";
+        mainChatInput.disabled = false;
+        return;
+      } else {
+        sendChat(mainChatInput);
+      }
+    }
+  };
+
+  function sendFileViaDataChannel(file) {
+    if (!dataChannel || dataChannel.readyState !== "open") {
+      addMessage("Error: No active connection. Start a call first.", "system");
+      return;
+    }
+
+    const CHUNK_SIZE = 16384; // 16KB chunks
+    const chunks = Math.ceil(file.size / CHUNK_SIZE);
+    let sentChunks = 0;
+
+    // Send file metadata first
+    dataChannel.send(
+      JSON.stringify({
+        type: "file-start",
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+        totalChunks: chunks,
+      })
+    );
+
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      const chunk = e.target.result;
+      dataChannel.send(chunk); // Send raw binary
+      sentChunks++;
+
+      if (sentChunks < chunks) {
+        const nextChunk = file.slice(
+          sentChunks * CHUNK_SIZE,
+          (sentChunks + 1) * CHUNK_SIZE
+        );
+        reader.readAsArrayBuffer(nextChunk);
+      } else {
+        // Done
+        dataChannel.send(
+          JSON.stringify({ type: "file-end", fileName: file.name })
+        );
+        addMessage(`Sent file: ${file.name}`, "me");
+      }
+    };
+
+    const firstChunk = file.slice(0, CHUNK_SIZE);
+    reader.readAsArrayBuffer(firstChunk);
+  }
+  // Data channel handlers will be attached when the channel is created or received
+
+  // mainSendBtn.onclick = () => {sendChat(mainChatInput);}
+  // mainChatInput.onkeydown = (e) => {
+  //   if (e.key === "Enter") sendChat(mainChatInput);
+  // };
 
   if (toChatBtn) {
     toChatBtn.onclick = () => {

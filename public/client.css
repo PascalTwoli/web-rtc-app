@@ -350,7 +350,8 @@ body {
   font-size: 16px; /* Prevents zoom on mobile */
 }
 
-.send-btn {
+.send-btn,
+.upload-btn {
   background: var(--primary-color);
   border: none;
   border-radius: 50%;
@@ -364,7 +365,14 @@ body {
   transition: background 0.2s;
 }
 
-.send-btn:hover {
+.upload-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: var(--text-color);
+  transition: background 1.5s;
+}
+
+.send-btn:hover,
+.upload-btn:hover {
   background: var(--primary-hover);
 }
 
