@@ -13,6 +13,74 @@ const AppState = {
   maxReconnectAttempts: 5,
 };
 
+// IndexedDB for file storage
+const FileStore = {
+  db: null,
+
+  init: () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open("PeersAppDB", 1);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        FileStore.db = request.result;
+        resolve();
+      };
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains("files")) {
+          const store = db.createObjectStore("files", {
+            keyPath: "id",
+            autoIncrement: true,
+          });
+          store.createIndex("timestamp", "timestamp", { unique: false });
+          store.createIndex("sender", "sender", { unique: false });
+        }
+      };
+    });
+  },
+
+  saveFile: (fileName, fileBlob, sender) => {
+    return new Promise((resolve, reject) => {
+      const store = FileStore.db
+        .transaction(["files"], "readwrite")
+        .objectStore("files");
+      const file = {
+        name: fileName,
+        blob: fileBlob,
+        type: fileBlob.type,
+        size: fileBlob.size,
+        sender: sender,
+        timestamp: Date.now(),
+      };
+      const request = store.add(file);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+  },
+
+  getFiles: () => {
+    return new Promise((resolve, reject) => {
+      const store = FileStore.db
+        .transaction(["files"], "readonly")
+        .objectStore("files");
+      const request = store.getAll();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+  },
+
+  deleteFile: (id) => {
+    return new Promise((resolve, reject) => {
+      const store = FileStore.db
+        .transaction(["files"], "readwrite")
+        .objectStore("files");
+      const request = store.delete(id);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  },
+};
+
 // Simple Chat Persistence
 const ChatStore = {
   getMessages: (partner) => {
@@ -81,6 +149,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const fileUploadBtn = document.getElementById("uploadFileBtn");
   const emojiBtn = document.getElementById("emojiBtn");
   const emojiPicker = document.getElementById("emojiPicker");
+  const filesBtn = document.getElementById("filesBtn");
+  const fileManagerModal = document.getElementById("fileManagerModal");
   let selectedFile = null;
 
   // Call Status & Timer
@@ -236,10 +306,18 @@ document.addEventListener("DOMContentLoaded", () => {
   function addMessage(textOrObj, className = "system", fromUser = null) {
     let text = textOrObj;
     let timestamp = null;
+    let fileId = null;
+    let fileName = null;
+    let fileSize = null;
+    let fileType = null;
 
     if (typeof textOrObj === "object") {
       text = textOrObj.text;
       timestamp = textOrObj.timestamp;
+      fileId = textOrObj.fileId;
+      fileName = textOrObj.fileName;
+      fileSize = textOrObj.fileSize;
+      fileType = textOrObj.fileType;
     }
 
     const createMsg = (container) => {
@@ -252,6 +330,71 @@ document.addEventListener("DOMContentLoaded", () => {
         strong.textContent = fromUser;
         div.appendChild(strong);
         div.appendChild(document.createElement("br"));
+      }
+
+      // Check if this is a file message
+      if (fileId && fileName) {
+        const fileContainer = document.createElement("div");
+        fileContainer.className = "file-message";
+        fileContainer.dataset.fileId = fileId; // Add for easy removal when deleted
+
+        // Check if it's an image
+        const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName);
+
+        if (isImage) {
+          // Show image preview
+          const preview = document.createElement("img");
+          preview.className = "file-preview-img";
+          preview.style.maxWidth = "200px";
+          preview.style.maxHeight = "200px";
+          preview.style.borderRadius = "6px";
+          preview.style.cursor = "pointer";
+          preview.dataset.fileId = fileId;
+          preview.onclick = () => window.downloadFile(fileId, fileName);
+
+          // Get the image blob and create preview
+          const transaction = FileStore.db.transaction(["files"], "readonly");
+          const store = transaction.objectStore("files");
+          const request = store.get(fileId);
+          request.onsuccess = () => {
+            const file = request.result;
+            if (file && file.blob) {
+              const url = URL.createObjectURL(file.blob);
+              preview.src = url;
+            }
+          };
+
+          fileContainer.appendChild(preview);
+        }
+
+        // File info bar
+        const infoBar = document.createElement("div");
+        infoBar.className = "file-info-bar";
+        infoBar.innerHTML = `
+          <span class="file-icon">📎</span>
+          <span class="file-details">
+            <div class="file-name" title="${fileName}">${fileName}</div>
+            <div class="file-meta">${formatFileSize(fileSize || 0)}</div>
+          </span>
+          <div class="file-buttons">
+            <button class="file-btn download-btn" data-id="${fileId}" title="Download">⬇️</button>
+            <button class="file-btn delete-btn" data-id="${fileId}" title="Delete">🗑️</button>
+          </div>
+        `;
+
+        // Attach event handlers
+        infoBar.querySelector(".download-btn").onclick = (e) => {
+          e.stopPropagation();
+          window.downloadFile(fileId, fileName);
+        };
+        infoBar.querySelector(".delete-btn").onclick = (e) => {
+          e.stopPropagation();
+          window.deleteFileFromChat(fileId);
+        };
+
+        fileContainer.appendChild(infoBar);
+        div.appendChild(fileContainer);
+      } else if (className === "other") {
         div.appendChild(document.createTextNode(text));
       } else {
         div.textContent = text;
@@ -318,6 +461,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // --- Core Logic ---
+
+  // Initialize IndexedDB
+  FileStore.init().catch((err) =>
+    console.error("Failed to initialize FileStore", err)
+  );
 
   // Check for persisted user
   const savedUser = localStorage.getItem("peers_username");
@@ -499,6 +647,59 @@ document.addEventListener("DOMContentLoaded", () => {
             });
             addMessage(data.text, "other", data.from);
           }
+          break;
+        case "file-message":
+          // Handle file received via WebSocket
+          const binaryString = atob(data.fileData);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const fileBlob = new Blob([bytes], { type: data.fileType });
+
+          // Save to IndexedDB and get the file ID
+          FileStore.saveFile(data.fileName, fileBlob, data.from)
+            .then((fileId) => {
+              const fileMsg = `📎 Received file: ${data.fileName}`;
+              if (data.from !== AppState.selectedUser) {
+                showToast(`File from ${data.from}: ${data.fileName}`, "info");
+                ChatStore.saveMessage(data.from, {
+                  text: fileMsg,
+                  fileId: fileId,
+                  fileName: data.fileName,
+                  fileSize: data.fileSize,
+                  fileType: data.fileType,
+                  type: "other",
+                  from: data.from,
+                });
+              } else {
+                addMessage(
+                  {
+                    text: fileMsg,
+                    fileId: fileId,
+                    fileName: data.fileName,
+                    fileSize: data.fileSize,
+                    fileType: data.fileType,
+                  },
+                  "other",
+                  data.from
+                );
+                ChatStore.saveMessage(data.from, {
+                  text: fileMsg,
+                  fileId: fileId,
+                  fileName: data.fileName,
+                  fileSize: data.fileSize,
+                  fileType: data.fileType,
+                  type: "other",
+                  from: data.from,
+                });
+              }
+              showToast(`File saved: ${data.fileName}`, "success");
+            })
+            .catch((err) => {
+              console.error("Failed to save file:", err);
+              addMessage(`Error saving file: ${data.fileName}`, "system");
+            });
           break;
         default:
           console.log("Unknown message:", data.type);
@@ -905,18 +1106,43 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (msg.type === "file-end") {
           if (window.incomingFile) {
+            const fileName = window.incomingFile.name;
+            const fileSize = window.incomingFile.size;
+            const fileType = window.incomingFile.type;
             const blob = new Blob(window.incomingFile.chunks, {
-              type: window.incomingFile.type,
+              type: fileType,
             });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = window.incomingFile.name;
-            a.click();
-            addMessage(
-              `📎 Received file: ${window.incomingFile.name}`,
-              "other"
-            );
+
+            // Save to IndexedDB and get the file ID
+            FileStore.saveFile(fileName, blob, AppState.selectedUser)
+              .then((fileId) => {
+                const fileMsg = `📎 Received file: ${fileName}`;
+                addMessage(
+                  {
+                    text: fileMsg,
+                    fileId: fileId,
+                    fileName: fileName,
+                    fileSize: fileSize,
+                    fileType: fileType,
+                  },
+                  "other"
+                );
+                ChatStore.saveMessage(AppState.selectedUser, {
+                  text: fileMsg,
+                  fileId: fileId,
+                  fileName: fileName,
+                  fileSize: fileSize,
+                  fileType: fileType,
+                  type: "other",
+                  from: AppState.selectedUser,
+                });
+                showToast(`File saved: ${fileName}`, "success");
+              })
+              .catch((err) => {
+                console.error("Failed to save file:", err);
+                addMessage(`Error saving file: ${fileName}`, "system");
+              });
+
             window.incomingFile = null;
           }
           return;
@@ -1346,6 +1572,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Show emoji picker (do not auto-close on selection; user must press close)
   emojiBtn.onclick = () => {
     emojiPicker.classList.remove("hidden");
+    closeMenu(); // Close the chat menu
 
     // Populate once
     if (!emojiPicker.dataset.initialized) {
@@ -1407,11 +1634,214 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  // File Manager Modal
+  async function showFileManager() {
+    fileManagerModal.classList.remove("hidden");
+
+    // Populate file list
+    try {
+      const files = await FileStore.getFiles();
+      let html = `<div class="file-manager-header">
+        <h3>Saved Files (${files.length})</h3>
+        <button class="file-manager-close-btn" id="fileManagerCloseBtn">Close</button>
+      </div>`;
+
+      if (files.length === 0) {
+        html += `<div class="file-list-empty">No files saved yet</div>`;
+      } else {
+        html += `<div class="file-list">`;
+        files.forEach((file) => {
+          const date = new Date(file.timestamp).toLocaleDateString();
+          html += `<div class="file-item">
+            <div class="file-info">
+              <div class="file-name" title="${file.name}">${file.name}</div>
+              <div class="file-meta">${formatFileSize(
+                file.size
+              )} • ${date}</div>
+            </div>
+            <div class="file-actions">
+              <button class="file-action-btn" data-id="${
+                file.id
+              }" onclick="downloadFile(${file.id}, '${file.name}')">⬇️</button>
+              <button class="file-action-btn delete" data-id="${
+                file.id
+              }" onclick="deleteFile(${file.id})">🗑️</button>
+            </div>
+          </div>`;
+        });
+        html += `</div>`;
+      }
+
+      fileManagerModal.innerHTML = html;
+
+      // Attach close handler
+      const closeBtn = fileManagerModal.querySelector("#fileManagerCloseBtn");
+      if (closeBtn) {
+        closeBtn.onclick = (e) => {
+          e.stopPropagation();
+          fileManagerModal.classList.add("hidden");
+        };
+      }
+    } catch (err) {
+      console.error("Failed to load files:", err);
+      fileManagerModal.innerHTML = `<div class="file-manager-header">
+        <h3>Saved Files</h3>
+        <button class="file-manager-close-btn" id="fileManagerCloseBtn">Close</button>
+      </div>
+      <div class="file-list-empty">Error loading files</div>`;
+    }
+  }
+
+  // Make functions global for onclick handlers
+  window.downloadFile = async (id, fileName) => {
+    try {
+      const transaction = FileStore.db.transaction(["files"], "readonly");
+      const store = transaction.objectStore("files");
+      const request = store.get(id);
+
+      request.onsuccess = () => {
+        const file = request.result;
+        if (file && file.blob) {
+          const url = URL.createObjectURL(file.blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = fileName;
+          a.click();
+          URL.revokeObjectURL(url);
+          showToast(`Downloaded: ${fileName}`, "success");
+        }
+      };
+    } catch (err) {
+      console.error("Failed to download file:", err);
+      showToast("Failed to download file", "danger");
+    }
+  };
+
+  window.deleteFile = async (id) => {
+    try {
+      await FileStore.deleteFile(id);
+      showToast("File deleted", "info");
+      showFileManager(); // Refresh
+    } catch (err) {
+      console.error("Failed to delete file:", err);
+      showToast("Failed to delete file", "danger");
+    }
+  };
+
+  window.deleteFileFromChat = async (id) => {
+    try {
+      await FileStore.deleteFile(id);
+      // Remove file message from chat display
+      const fileMessages = document.querySelectorAll(`[data-file-id="${id}"]`);
+      fileMessages.forEach((msg) => {
+        msg.remove();
+      });
+      showToast("File deleted from chat", "info");
+    } catch (err) {
+      console.error("Failed to delete file from chat:", err);
+      showToast("Failed to delete file", "danger");
+    }
+  };
+
+  // Chat Menu Toggle (Mobile Only)
+  const chatMenuBtn = document.getElementById("chatMenuBtn");
+  const chatMenu = document.getElementById("chatMenu");
+
+  if (chatMenuBtn) {
+    chatMenuBtn.onclick = (e) => {
+      e.stopPropagation();
+      chatMenu.classList.toggle("hidden");
+    };
+  }
+
+  // Close menu when clicking outside
+  const closeMenu = () => {
+    if (chatMenu) chatMenu.classList.add("hidden");
+  };
+
+  document.addEventListener("click", (e) => {
+    if (chatMenuBtn && !chatMenuBtn.contains(e.target) && chatMenu && !chatMenu.contains(e.target)) {
+      closeMenu();
+    }
+  });
+
+  // Desktop file upload button
+  if (fileUploadBtn) {
+    fileUploadBtn.onclick = () => {
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.onchange = () => {
+        selectedFile = fileInput.files[0];
+        if (selectedFile) {
+          const chatInput = document.getElementById("mainChatInput");
+          chatInput.value = `📎 ${selectedFile.name} (${formatFileSize(
+            selectedFile.size
+          )})`;
+          chatInput.disabled = false;
+          console.log("File selected:", selectedFile.name);
+        }
+      };
+      fileInput.click();
+    };
+  }
+
+  // Mobile file upload button
+  const fileUploadBtnMobile = document.getElementById("uploadFileBtn-mobile");
+  if (fileUploadBtnMobile) {
+    fileUploadBtnMobile.onclick = () => {
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.onchange = () => {
+        selectedFile = fileInput.files[0];
+        if (selectedFile) {
+          const chatInput = document.getElementById("mainChatInput");
+          chatInput.value = `📎 ${selectedFile.name} (${formatFileSize(
+            selectedFile.size
+          )})`;
+          chatInput.disabled = false;
+          console.log("File selected:", selectedFile.name);
+        }
+      };
+      fileInput.click();
+      closeMenu();
+    };
+  }
+
+  filesBtn.onclick = () => {
+    showFileManager();
+  };
+
+  // Mobile files button
+  const filesBtnMobile = document.getElementById("filesBtn-mobile");
+  if (filesBtnMobile) {
+    filesBtnMobile.onclick = () => {
+      showFileManager();
+      closeMenu();
+    };
+  }
+
+  // Mobile emoji button
+  const emojiBtnMobile = document.getElementById("emojiBtn-mobile");
+  if (emojiBtnMobile) {
+    emojiBtnMobile.onclick = () => {
+      emojiBtn.click(); // Trigger the desktop emoji button
+      closeMenu();
+    };
+  }
+
   // on click mainSendBtn or enter key, send chat message or file if selected
   mainSendBtn.onclick = () => {
     if (selectedFile) {
-      sendFileViaDataChannel(selectedFile);
-      // Clear selected file
+      // Use DataChannel if on call, otherwise use WebSocket
+      if (
+        AppState.isCallActive &&
+        dataChannel &&
+        dataChannel.readyState === "open"
+      ) {
+        sendFileViaDataChannel(selectedFile);
+      } else {
+        sendFileViaWebSocket(selectedFile);
+      }
       selectedFile = null;
       mainChatInput.value = "";
       mainChatInput.disabled = false;
@@ -1420,11 +1850,20 @@ document.addEventListener("DOMContentLoaded", () => {
       sendChat(mainChatInput);
     }
   };
+
   mainChatInput.onkeydown = (e) => {
     if (e.key === "Enter") {
       if (selectedFile) {
-        sendFileViaDataChannel(selectedFile);
-
+        // Use DataChannel if on call, otherwise use WebSocket
+        if (
+          AppState.isCallActive &&
+          dataChannel &&
+          dataChannel.readyState === "open"
+        ) {
+          sendFileViaDataChannel(selectedFile);
+        } else {
+          sendFileViaWebSocket(selectedFile);
+        }
         selectedFile = null;
         mainChatInput.value = "";
         mainChatInput.disabled = false;
@@ -1474,14 +1913,99 @@ document.addEventListener("DOMContentLoaded", () => {
         dataChannel.send(
           JSON.stringify({ type: "file-end", fileName: file.name })
         );
-        addMessage(`Sent file: ${file.name}`, "me");
+        // Store sent file to IndexedDB
+        FileStore.saveFile(file.name, file, AppState.selectedUser).then(
+          (fileId) => {
+            const fileMsg = `📎 Sent file: ${file.name}`;
+            addMessage(
+              {
+                text: fileMsg,
+                fileId: fileId,
+                fileName: file.name,
+                fileSize: file.size,
+                fileType: file.type,
+              },
+              "me"
+            );
+            ChatStore.saveMessage(AppState.selectedUser, {
+              text: fileMsg,
+              fileId: fileId,
+              fileName: file.name,
+              fileSize: file.size,
+              fileType: file.type,
+              type: "me",
+              from: AppState.myUserName,
+            });
+          }
+        );
       }
     };
 
     const firstChunk = file.slice(0, CHUNK_SIZE);
     reader.readAsArrayBuffer(firstChunk);
   }
-  // Data channel handlers will be attached when the channel is created or received
+
+  // Send file via WebSocket (for when not on call)
+  function sendFileViaWebSocket(file) {
+    if (!AppState.selectedUser) {
+      addMessage("Error: No user selected", "system");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const bytes = new Uint8Array(e.target.result);
+
+      // Convert to base64 in chunks to avoid "Invalid array length" error
+      let base64 = "";
+      const chunkSize = 8192;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        base64 += String.fromCharCode.apply(null, chunk);
+      }
+      base64 = btoa(base64);
+
+      ws.send(
+        JSON.stringify({
+          type: "file-message",
+          to: AppState.selectedUser,
+          from: AppState.myUserName,
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          fileData: base64,
+        })
+      );
+
+      // Store sent file to IndexedDB
+      FileStore.saveFile(file.name, file, AppState.selectedUser).then(
+        (fileId) => {
+          const fileMsg = `📎 Sent file: ${file.name}`;
+          addMessage(
+            {
+              text: fileMsg,
+              fileId: fileId,
+              fileName: file.name,
+              fileSize: file.size,
+              fileType: file.type,
+            },
+            "me"
+          );
+          ChatStore.saveMessage(AppState.selectedUser, {
+            text: fileMsg,
+            fileId: fileId,
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+            type: "me",
+            from: AppState.myUserName,
+          });
+        }
+      );
+    };
+
+    reader.readAsArrayBuffer(file);
+  }
 
   // mainSendBtn.onclick = () => {sendChat(mainChatInput);}
   // mainChatInput.onkeydown = (e) => {

@@ -68,6 +68,7 @@ wss.on("connection", (ws) => {
         case "hangup":
         case "chat":
         case "video-toggle":
+        case "file-message":
           // Forward the offer/answer/ice to the selected user's WebSocket
           const targetUserWs = Array.from(users.entries()).find(
             ([, username]) => username === data.to
@@ -96,6 +97,15 @@ wss.on("connection", (ws) => {
                 ? {
                     type: "video-toggle",
                     enabled: data.enabled,
+                    from: users.get(ws),
+                  }
+                : data.type === "file-message"
+                ? {
+                    type: "file-message",
+                    fileName: data.fileName,
+                    fileType: data.fileType,
+                    fileSize: data.fileSize,
+                    fileData: data.fileData,
                     from: users.get(ws),
                   }
                 : { type: "reject", from: users.get(ws) };
