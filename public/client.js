@@ -1339,7 +1339,8 @@ document.addEventListener("DOMContentLoaded", () => {
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
   }
 
-  // Emoji Picker
+  // Emoji Picker with Categories
+  const emojiCategories = window.EMOJI_CATEGORIES || {};
   const emojis = window.EMOJIS || ["😀", "😂"];
 
   // Show emoji picker (do not auto-close on selection; user must press close)
@@ -1348,14 +1349,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Populate once
     if (!emojiPicker.dataset.initialized) {
-      // Header with close button
-      const header = `<div class="emoji-header"><button id="emojiCloseBtn" class="emoji-close-btn">Close</button></div>`;
-      const grid = `<div class="emoji-grid">${emojis
-        .map((emoji) => `<button class="emoji-item">${emoji}</button>`)
-        .join("")}</div>`;
+      // Header with category buttons and close button
+      const categoryButtons = Object.entries(emojiCategories)
+        .map(
+          ([emoji, data]) =>
+            `<button class="emoji-category-btn" data-category="${data.name}" title="${data.name}">${emoji}</button>`
+        )
+        .join("");
+      const header = `<div class="emoji-header"><div class="emoji-categories">${categoryButtons}</div><button id="emojiCloseBtn" class="emoji-close-btn">Close</button></div>`;
+
+      // Grid with emojis organized by category - headers span full width, emojis flow naturally
+      let gridContent = "";
+      Object.entries(emojiCategories).forEach(([_, data]) => {
+        gridContent += `<h3 class="emoji-category-header" data-category="${data.name}" style="margin: 8px 0 4px; font-size: 12px; color: var(--text-secondary);">${data.name}</h3>`;
+        gridContent += data.emojis
+          .map((emoji) => `<button class="emoji-item">${emoji}</button>`)
+          .join("");
+      });
+      const grid = `<div class="emoji-grid">${gridContent}</div>`;
       emojiPicker.innerHTML = header + grid;
 
-      // Attach handlers
+      // Attach handlers for close button
       const closeBtn = emojiPicker.querySelector("#emojiCloseBtn");
       if (closeBtn) {
         closeBtn.onclick = (e) => {
@@ -1364,6 +1378,22 @@ document.addEventListener("DOMContentLoaded", () => {
         };
       }
 
+      // Attach handlers for category buttons (scroll to category)
+      emojiPicker.querySelectorAll(".emoji-category-btn").forEach((btn) => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          const category = btn.dataset.category;
+          const header = emojiPicker.querySelector(
+            `.emoji-category-header[data-category="${category}"]`
+          );
+          if (header) {
+            const grid = emojiPicker.querySelector(".emoji-grid");
+            grid.scrollTop = header.offsetTop - 8; // Scroll to header with slight offset
+          }
+        };
+      });
+
+      // Attach handlers for emoji buttons
       emojiPicker.querySelectorAll(".emoji-item").forEach((btn) => {
         btn.onclick = (e) => {
           e.stopPropagation();
