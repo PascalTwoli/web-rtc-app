@@ -333,6 +333,8 @@ body {
 
 .chat-input-area {
   display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
   padding: 12px;
   gap: 8px;
   border-top: 1px solid #333;
@@ -341,6 +343,7 @@ body {
 
 .chat-input-area input {
   flex: 1;
+  min-width: 0;
   padding: 12px;
   background: var(--surface-light);
   border: none;
@@ -376,11 +379,21 @@ body {
   background: var(--primary-hover);
 }
 
+/* Desktop-only and Mobile-only classes */
+.desktop-only {
+  display: flex !important;
+}
+
+.mobile-only {
+  display: none !important;
+}
+
 /* Chat Menu Container */
 .chat-menu-container {
   position: relative;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .menu-toggle {
@@ -393,6 +406,7 @@ body {
   position: absolute;
   bottom: 100%;
   right: 0;
+  left: auto;
   background: var(--surface-color);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
@@ -400,9 +414,13 @@ body {
   margin-bottom: 8px;
   display: flex;
   flex-direction: column;
-  min-width: 180px;
+  min-width: 200px;
+  max-width: calc(100vw - 20px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  z-index: 10;
+  z-index: 100;
+  /* horizontal offset variable so animations can preserve it */
+  --menu-offset: 0;
+  transform: translateX(var(--menu-offset, 0));
   animation: slideUpMenu 0.2s ease-out;
 }
 
@@ -413,11 +431,11 @@ body {
 @keyframes slideUpMenu {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateX(var(--menu-offset, 0)) translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateX(var(--menu-offset, 0)) translateY(0);
   }
 }
 
@@ -1322,12 +1340,25 @@ body {
     height: 60px;
   }
 
+  /* Show mobile menu, hide desktop buttons */
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: flex !important;
+  }
+
   /* Chat Menu Mobile Styling */
   .chat-menu {
-    bottom: 56px;
-    right: 8px;
+    bottom: 100%;
+    right: auto;
+    left: 50%;
+    /* use CSS variable so animation preserves horizontal offset
+       adjust the calc value to nudge the menu right/left as needed */
+    --menu-offset: calc(-50% + 50px);
     min-width: 160px;
-    max-width: 90vw;
+    max-width: calc(100vw - 16px);
   }
 
   .menu-item {

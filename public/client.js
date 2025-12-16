@@ -1760,7 +1760,12 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   document.addEventListener("click", (e) => {
-    if (chatMenuBtn && !chatMenuBtn.contains(e.target) && chatMenu && !chatMenu.contains(e.target)) {
+    if (
+      chatMenuBtn &&
+      !chatMenuBtn.contains(e.target) &&
+      chatMenu &&
+      !chatMenu.contains(e.target)
+    ) {
       closeMenu();
     }
   });
