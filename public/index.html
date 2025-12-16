@@ -215,6 +215,10 @@
                 style="display: none"
               />
             </button>
+            <button id="emojiBtn" class="upload-btn" title="Emoji">
+              <span style="font-size: 18px">😊</span>
+            </button>
+            <div id="emojiPicker" class="emoji-picker hidden"></div>
             <input
               id="mainChatInput"
               name="message"
@@ -452,6 +456,7 @@
     <div id="toast-container"></div>
 
     <audio id="remoteRingtone" src="./hyunjin_ringtone.mp3" loop muted></audio>
+    <script src="emoji.js"></script>
     <script src="client.js"></script>
   </body>
 </html>

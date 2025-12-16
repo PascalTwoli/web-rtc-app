@@ -79,6 +79,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const mainChatInput = document.getElementById("mainChatInput");
   const mainSendBtn = document.getElementById("mainSendBtn");
   const fileUploadBtn = document.getElementById("uploadFileBtn");
+  const emojiBtn = document.getElementById("emojiBtn");
+  const emojiPicker = document.getElementById("emojiPicker");
   let selectedFile = null;
 
   // Call Status & Timer
@@ -1337,86 +1339,43 @@ document.addEventListener("DOMContentLoaded", () => {
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
   }
 
-  // fileUploadBtn.onclick = () => {
-  //   console.log("File upload clicked");
-  //   const fileInput = document.createElement("input");
-  //   fileInput.type = "file";
-  //   fileInput.onchange = () => {
-  //     const file = fileInput.files[0];
-  //     if (file && AppState.selectedUser) {
-  //       const reader = new FileReader();
-  //       reader.onload = () => {
-  //         const arrayBuffer = reader.result;
+  // Emoji Picker
+  const emojis = window.EMOJIS || ["😀", "😂"];
 
-  //         // Check WebSocket is ready
-  //         if (ws.readyState !== ws.OPEN) {
-  //           console.error("WebSocket not connected");
-  //           addMessage("Connection lost. Cannot send file.", "system");
-  //           return;
-  //         }
+  // Show emoji picker (do not auto-close on selection; user must press close)
+  emojiBtn.onclick = () => {
+    emojiPicker.classList.remove("hidden");
 
-  //         ws.send(
-  //           JSON.stringify({
-  //             type: "file",
-  //             to: AppState.selectedUser,
-  //             from: AppState.myUserName,
-  //             fileName: file.name,
-  //             fileType: file.type,
-  //             fileSize: file.size,
-  //             fileData: Array.from(new Uint8Array(arrayBuffer)),
-  //           })
-  //         );
+    // Populate once
+    if (!emojiPicker.dataset.initialized) {
+      // Header with close button
+      const header = `<div class="emoji-header"><button id="emojiCloseBtn" class="emoji-close-btn">Close</button></div>`;
+      const grid = `<div class="emoji-grid">${emojis
+        .map((emoji) => `<button class="emoji-item">${emoji}</button>`)
+        .join("")}</div>`;
+      emojiPicker.innerHTML = header + grid;
 
-  //         ChatStore.saveMessage(AppState.selectedUser, {
-  //           text: `Sent file: ${file.name}`,
-  //           type: "me",
-  //           from: AppState.myUserName,
-  //         });
+      // Attach handlers
+      const closeBtn = emojiPicker.querySelector("#emojiCloseBtn");
+      if (closeBtn) {
+        closeBtn.onclick = (e) => {
+          e.stopPropagation();
+          emojiPicker.classList.add("hidden");
+        };
+      }
 
-  //         addMessage(`Sent file: ${file.name}`, "me");
-  //       };
-  //       reader.readAsArrayBuffer(file);
-  //     }
-  //   };
+      emojiPicker.querySelectorAll(".emoji-item").forEach((btn) => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          mainChatInput.value += btn.textContent;
+          mainChatInput.focus();
+          // do NOT close picker to allow multiple selections
+        };
+      });
 
-  //   // THIS IS THE KEY LINE - trigger the file picker
-  //   fileInput.click();
-  // };
-
-  // //allow upload and sending of files in chat
-  // fileUploadBtn.onclick = () => {
-  //   console.log("File upload clicked");
-  //   const fileInput = document.createElement("input");
-  //   fileInput.type = "file";
-  //   fileInput.onchange = () => {
-  //     const file = fileInput.files[0];
-  //     if (file && AppState.selectedUser) {
-  //       const reader = new FileReader();
-  //       reader.onload = () => {
-  //         const arrayBuffer = reader.result;
-  //         ws.send(
-  //           JSON.stringify({
-  //             type: "file",
-  //             to: AppState.selectedUser,
-  //             from: AppState.myUserName,
-  //             fileName: file.name,
-  //             fileType: file.type,
-  //             fileData: Array.from(new Uint8Array(arrayBuffer)),
-  //           })
-  //         );
-
-  //         ChatStore.saveMessage(AppState.selectedUser, {
-  //           text: `Sent file: ${file.name}`,
-  //           type: "me",
-  //           from: AppState.myUserName,
-  //         });
-
-  //         addMessage(`Sent file: ${file.name}`, "me");
-  //       };
-  //       reader.readAsArrayBuffer(file);
-  //     }
-  //   };
-  // };
+      emojiPicker.dataset.initialized = "1";
+    }
+  };
 
   // on click mainSendBtn or enter key, send chat message or file if selected
   mainSendBtn.onclick = () => {
