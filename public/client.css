@@ -1367,6 +1367,28 @@ body {
   }
 }
 /* Emoji Picker Styles */
+/* Enable mobile-style menu earlier for narrow desktops/tablets */
+@media (max-width: 920px) {
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: flex !important;
+  }
+
+  .chat-menu {
+    bottom: 100%;
+    right: auto;
+    left: 50%;
+    /* slightly nudge so it's not clipped on smaller viewports */
+    --menu-offset: calc(-50% + 50px);
+    min-width: 160px;
+    max-width: calc(100vw - 16px);
+  }
+}
+
+/* Emoji Picker Styles */
 .emoji-picker {
   position: absolute;
   bottom: 60px;
