@@ -4,11 +4,18 @@ const https = require("https");
 const http = require("http");
 const express = require("express");
 const { WebSocketServer } = require("ws");
+const path = require("path");
 
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = process.env.PORT || 4430;
 
 const app = express();
+// This tells Express to serve bootstrap-icons files under the virtual path "/icons"
+app.use(
+  "/icons",
+  express.static(path.join(__dirname, "node_modules/bootstrap-icons/font"))
+);
+
 app.use(express.static("public"));
 
 let server;
@@ -69,6 +76,8 @@ wss.on("connection", (ws) => {
         case "chat":
         case "video-toggle":
         case "file-message":
+        case "delivered":
+        case "read":
           // Forward the offer/answer/ice to the selected user's WebSocket
           const targetUserWs = Array.from(users.entries()).find(
             ([, username]) => username === data.to
@@ -92,7 +101,13 @@ wss.on("connection", (ws) => {
                 : data.type === "hangup"
                 ? { type: "hangup", from: users.get(ws) }
                 : data.type === "chat"
-                ? { type: "chat", text: data.text, from: users.get(ws) }
+                ? {
+                    type: "chat",
+                    text: data.text,
+                    from: users.get(ws),
+                    messageId: data.messageId || null,
+                    timestamp: data.timestamp || Date.now(),
+                  }
                 : data.type === "video-toggle"
                 ? {
                     type: "video-toggle",
@@ -106,6 +121,18 @@ wss.on("connection", (ws) => {
                     fileType: data.fileType,
                     fileSize: data.fileSize,
                     fileData: data.fileData,
+                    from: users.get(ws),
+                  }
+                : data.type === "delivered"
+                ? {
+                    type: "delivered",
+                    messageId: data.messageId,
+                    from: users.get(ws),
+                  }
+                : data.type === "read"
+                ? {
+                    type: "read",
+                    messageId: data.messageId,
                     from: users.get(ws),
                   }
                 : { type: "reject", from: users.get(ws) };

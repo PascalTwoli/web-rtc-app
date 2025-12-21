@@ -3,6 +3,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "bootstrap-icons": "^1.13.1",
     "express": "^5.2.1",
     "ws": "^8.18.3"
   }

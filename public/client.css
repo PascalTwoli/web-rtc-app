@@ -1,3 +1,5 @@
+/* @import "~bootstrap-icons/font/bootstrap-icons.css"; */
+
 :root {
   --bg-color: #121212;
   --surface-color: #1e1e1e;
@@ -336,17 +338,23 @@ body {
   display: inline-block;
   margin-left: 8px;
   vertical-align: middle;
-  font-size: 12px;
-  color: rgba(255,255,255,0.6);
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
 }
 .msg-status .tick {
   margin-left: 2px;
-  opacity: 0.9;
+  opacity: 0.7;
+  -webkit-text-stroke-width: 0.8px;
 }
-.msg-status.status-sent { color: rgba(255,255,255,0.6); }
-.msg-status.status-delivered { color: rgba(180,180,180,0.9); }
-.msg-status.status-read { color: #7c4dff; /* purple */ }
-
+.msg-status.status-sent {
+  color: rgba(244, 244, 244, 0.6);
+}
+.msg-status.status-delivered {
+  color: rgba(244, 244, 244, 0.6);
+}
+.msg-status.status-read {
+  color: #7c4dff; /* purple */
+}
 
 .chat-input-area {
   display: flex;

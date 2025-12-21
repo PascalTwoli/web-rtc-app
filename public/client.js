@@ -105,6 +105,19 @@ const ChatStore = {
       console.error("Failed to save chat message", e);
     }
   },
+  updateMessageStatus: (partner, messageId, newStatus) => {
+    try {
+      const key = `chat_${AppState.myUserName}_${partner}`;
+      const messages = ChatStore.getMessages(partner);
+      const msg = messages.find((m) => m.messageId === messageId);
+      if (msg) {
+        msg.status = newStatus;
+        localStorage.setItem(key, JSON.stringify(messages));
+      }
+    } catch (e) {
+      console.error("Failed to update message status", e);
+    }
+  },
 };
 
 let config = {
@@ -221,11 +234,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!statusSpan) return;
     statusSpan.className = `msg-status status-${newStatus}`;
     if (newStatus === "sent") {
-      statusSpan.innerHTML = `<span class="tick">✓</span>`;
+      statusSpan.innerHTML = `<i class="bi bi-check2 tick"></i>`;
     } else if (newStatus === "delivered") {
-      statusSpan.innerHTML = `<span class="tick">✓</span><span class="tick">✓</span>`;
+      statusSpan.innerHTML = `<i class="bi bi-check2-all tick"></i>`;
     } else if (newStatus === "read") {
-      statusSpan.innerHTML = `<span class="tick">✓</span><span class="tick">✓</span>`;
+      statusSpan.innerHTML = `<i class="bi bi-check2-all tick"></i>`;
     }
   }
 
@@ -233,14 +246,25 @@ document.addEventListener("DOMContentLoaded", () => {
   function markMessagesRead(user) {
     if (!user) return;
     const messages = ChatStore.getMessages(user) || [];
-    const unread = messages.filter((m) => m.type === 'other' && m.status !== 'read' && m.messageId);
+    const unread = messages.filter(
+      (m) => m.type === "other" && m.status !== "read" && m.messageId
+    );
     unread.forEach((m) => {
       // Update local store
-      if (ChatStore.updateMessageStatus) ChatStore.updateMessageStatus(user, m.messageId, 'read');
+      if (ChatStore.updateMessageStatus)
+        ChatStore.updateMessageStatus(user, m.messageId, "read");
       // Update UI
-      updateMessageStatus(m.messageId, 'read');
+      updateMessageStatus(m.messageId, "read");
       // Notify sender via server
-      ws.send(JSON.stringify({ type: 'read', to: m.from, from: AppState.myUserName, messageId: m.messageId, timestamp: Date.now() }));
+      ws.send(
+        JSON.stringify({
+          type: "read",
+          to: m.from,
+          from: AppState.myUserName,
+          messageId: m.messageId,
+          timestamp: Date.now(),
+        })
+      );
     });
   }
 
@@ -441,11 +465,15 @@ document.addEventListener("DOMContentLoaded", () => {
       // Status ticks for outgoing messages
       if (className === "me") {
         const statusSpan = document.createElement("span");
-        statusSpan.className = `msg-status ${status ? 'status-' + status : 'status-sent'}`;
-        statusSpan.innerHTML = `<span class="tick">✓</span>`; // single tick by default
+        statusSpan.className = `msg-status ${
+          status ? "status-" + status : "status-sent"
+        }`;
+        statusSpan.innerHTML = `<i class="bi bi-check2 tick"></i>`; // single tick by default
         // two ticks for delivered/read
-        if (status === 'delivered') statusSpan.innerHTML = `<span class="tick">✓</span><span class="tick">✓</span>`;
-        if (status === 'read') statusSpan.innerHTML = `<span class="tick">✓</span><span class="tick">✓</span>`;
+        if (status === "delivered")
+          statusSpan.innerHTML = `<i class="bi bi-check2-all tick"></i>`;
+        if (status === "read")
+          statusSpan.innerHTML = `<i class="bi bi-check2-all tick"></i>`;
         div.appendChild(statusSpan);
       }
 
@@ -601,6 +629,20 @@ document.addEventListener("DOMContentLoaded", () => {
     pongTimeoutId = null;
   }
 
+  //helper to send read acks
+  function sendReadAck(fromUser, messageId) {
+    if (!fromUser || !messageId) return;
+
+    ws.send(
+      JSON.stringify({
+        type: "read",
+        to: fromUser,
+        from: AppState.myUserName,
+        messageId,
+      })
+    );
+  }
+
   function initWebSocket() {
     if (
       ws &&
@@ -639,6 +681,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     ws.onmessage = async (event) => {
       const data = JSON.parse(event.data);
+
+      // if (data.type === "chat") {
+      //   if (AppState.isCallActive && dataChannel?.readyState === "open") {
+      //     return; // DataChannel owns chat now
+      //   }
+      // }
+
       switch (data.type) {
         case "pong":
           if (pongTimeoutId) clearTimeout(pongTimeoutId);
@@ -678,38 +727,80 @@ document.addEventListener("DOMContentLoaded", () => {
               remoteAvatarCircle.textContent = getInitials(data.from);
           }
           break;
-        case "chat":
-          // Save incoming message and ACK delivery back to sender
+        // case "chat":
+        //     // ⛔ If DataChannel is active, ignore WS chat
+        //   if (AppState.isCallActive && dataChannel?.readyState === "open") {
+        //     return;
+        //   }
+        //   // Save incoming message and ACK delivery back to sender
+        //   const incoming = {
+        //     text: data.text,
+        //     type: "other",
+        //     from: data.from,
+        //     messageId: data.messageId || null,
+        //     timestamp: data.timestamp || Date.now(),
+        //     status: "delivered",
+        //   };
+
+        //   if (data.from !== AppState.selectedUser) {
+        //     showToast(`New message from ${data.from}`, "info");
+        //     ChatStore.saveMessage(data.from, incoming);
+        //     addMessage(incoming, "other", data.from);
+        //   }
+
+        //   // Send delivered ack back to the original sender via server
+        //   if (data.messageId) {
+        //     ws.send(
+        //       JSON.stringify({
+        //         type: "delivered",
+        //         to: data.from,
+        //         from: AppState.myUserName,
+        //         messageId: data.messageId,
+        //         timestamp: Date.now(),
+        //       })
+        //     );
+        //   }
+        //  break;
+
+        case "chat": {
+          // ⛔ If DataChannel is active, ignore WS chat
+          if (AppState.isCallActive && dataChannel?.readyState === "open") {
+            return;
+          }
+
           const incoming = {
             text: data.text,
             type: "other",
             from: data.from,
-            messageId: data.messageId || null,
-            timestamp: data.timestamp || Date.now(),
+            messageId: data.messageId,
+            timestamp: data.timestamp,
             status: "delivered",
           };
 
-          if (data.from !== AppState.selectedUser) {
-            showToast(`New message from ${data.from}`, "info");
-            ChatStore.saveMessage(data.from, incoming);
-          } else {
-            ChatStore.saveMessage(data.from, incoming);
+          ChatStore.saveMessage(data.from, incoming);
+
+          if (data.from === AppState.selectedUser) {
             addMessage(incoming, "other", data.from);
+
+            // ✅ AUTO-READ when chat is open
+            sendReadAck(data.from, data.messageId);
+          } else {
+            showToast(`New message from ${data.from}`, "info");
           }
 
-          // Send delivered ack back to the original sender via server
-          if (data.messageId) {
-            ws.send(
-              JSON.stringify({
-                type: "delivered",
-                to: data.from,
-                from: AppState.myUserName,
-                messageId: data.messageId,
-                timestamp: Date.now(),
-              })
-            );
-          }
+          // delivered ACK (always)
+          ws.send(
+            JSON.stringify({
+              type: "delivered",
+              to: data.from,
+              from: AppState.myUserName,
+              messageId: data.messageId,
+            })
+          );
+
           break;
+        }
+
         case "file-message":
           // Handle file received via WebSocket
           const binaryString = atob(data.fileData);
@@ -768,7 +859,12 @@ document.addEventListener("DOMContentLoaded", () => {
           if (data.messageId) {
             updateMessageStatus(data.messageId, "delivered");
             // Persist status change
-            ChatStore.updateMessageStatus && ChatStore.updateMessageStatus(data.to || data.from, data.messageId, "delivered");
+            ChatStore.updateMessageStatus &&
+              ChatStore.updateMessageStatus(
+                data.from,
+                data.messageId,
+                "delivered"
+              );
           }
           break;
 
@@ -776,7 +872,8 @@ document.addEventListener("DOMContentLoaded", () => {
           // Update message status to read (two purple ticks)
           if (data.messageId) {
             updateMessageStatus(data.messageId, "read");
-            ChatStore.updateMessageStatus && ChatStore.updateMessageStatus(data.to || data.from, data.messageId, "read");
+            ChatStore.updateMessageStatus &&
+              ChatStore.updateMessageStatus(data.from, data.messageId, "read");
           }
           break;
         default:
@@ -1140,7 +1237,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Setup data channel handlers (reusable)
   function setupDataChannel(channel) {
-    if (!channel) return;
+    if (!channel || channel._initialized) return;
+    channel._initialized = true;
     dataChannel = channel;
     try {
       channel.binaryType = "arraybuffer";
@@ -1228,13 +1326,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Other string messages (chat)
         if (msg.type === "chat") {
-          addMessage(msg.text, "other");
-        }
-      } else {
-        // Binary chunk
-        if (window.incomingFile) {
-          window.incomingFile.chunks.push(e.data);
-          window.incomingFile.received++;
+          const incoming = {
+            text: msg.text,
+            type: "other",
+            from: msg.from,
+            messageId: msg.messageId,
+            timestamp: msg.timestamp,
+            status: "delivered",
+          };
+
+          ChatStore.saveMessage(msg.from, incoming);
+          addMessage(incoming, "other", msg.from);
+
+          // delivered ACK
+          ws.send(
+            JSON.stringify({
+              type: "delivered",
+              to: msg.from,
+              from: AppState.myUserName,
+              messageId: msg.messageId,
+            })
+          );
+
+          // ✅ AUTO-READ (this was missing completely)
+          if (AppState.selectedUser === msg.from) {
+            sendReadAck(msg.from, msg.messageId);
+          }
         }
       }
     };
@@ -1591,6 +1708,7 @@ document.addEventListener("DOMContentLoaded", () => {
         li.classList.remove("selected");
       }
     });
+
     // Mark messages as read when opening a chat
     markMessagesRead(user);
   }
@@ -1599,22 +1717,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const text = inputEl.value.trim();
     if (!text || !AppState.selectedUser) return;
 
-    // Create a unique messageId so we can track delivery/read acks
-    const messageId = `${Date.now()}-${Math.random().toString(16).slice(2,8)}`;
+    //create a unique messageId so we can track delivery/read acks
+    const messageId = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 
-    // Send chat with id
-    ws.send(
-      JSON.stringify({
-        type: "chat",
-        to: AppState.selectedUser,
-        from: AppState.myUserName,
-        text: text,
-        messageId: messageId,
-        timestamp: Date.now(),
-      })
-    );
+    //send chat with id
+    sendChatMessage({
+      type: "chat",
+      to: AppState.selectedUser,
+      from: AppState.myUserName,
+      text,
+      messageId,
+      timestamp: Date.now(),
+    });
 
-    // Persist locally with status 'sent'
+    //persist locally  with status 'sent'
     ChatStore.saveMessage(AppState.selectedUser, {
       text: text,
       type: "me",
@@ -1624,9 +1740,21 @@ document.addEventListener("DOMContentLoaded", () => {
       timestamp: Date.now(),
     });
 
-    // Immediately show as sent (one tick)
-    addMessage({ text, messageId, status: 'sent', timestamp: Date.now() }, "me");
+    //Immediately show as sent (one tick)
+    addMessage(
+      { text, messageId, status: "sent", timestamp: Date.now() },
+      "me"
+    );
     inputEl.value = "";
+  }
+
+  //chat use one transport at a time
+  function sendChatMessage(payload) {
+    if (AppState.isCallActive && dataChannel?.readyState === "open") {
+      dataChannel.send(JSON.stringify(payload));
+    } else {
+      ws.send(JSON.stringify(payload));
+    }
   }
 
   // allow upload and sending of files in chat
