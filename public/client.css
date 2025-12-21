@@ -331,6 +331,23 @@ body {
   margin-top: 4px;
 }
 
+/* Message status ticks */
+.msg-status {
+  display: inline-block;
+  margin-left: 8px;
+  vertical-align: middle;
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+}
+.msg-status .tick {
+  margin-left: 2px;
+  opacity: 0.9;
+}
+.msg-status.status-sent { color: rgba(255,255,255,0.6); }
+.msg-status.status-delivered { color: rgba(180,180,180,0.9); }
+.msg-status.status-read { color: #7c4dff; /* purple */ }
+
+
 .chat-input-area {
   display: flex;
   align-items: center;

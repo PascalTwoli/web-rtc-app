@@ -211,6 +211,39 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // Helper: update message status in DOM
+  function updateMessageStatus(messageId, newStatus) {
+    if (!messageId) return;
+    // Find element with matching dataset.messageId
+    const el = document.querySelector(`.msg[data-message-id="${messageId}"]`);
+    if (!el) return;
+    const statusSpan = el.querySelector(".msg-status");
+    if (!statusSpan) return;
+    statusSpan.className = `msg-status status-${newStatus}`;
+    if (newStatus === "sent") {
+      statusSpan.innerHTML = `<span class="tick">✓</span>`;
+    } else if (newStatus === "delivered") {
+      statusSpan.innerHTML = `<span class="tick">✓</span><span class="tick">✓</span>`;
+    } else if (newStatus === "read") {
+      statusSpan.innerHTML = `<span class="tick">✓</span><span class="tick">✓</span>`;
+    }
+  }
+
+  // Mark messages from currently open chat as read and notify sender
+  function markMessagesRead(user) {
+    if (!user) return;
+    const messages = ChatStore.getMessages(user) || [];
+    const unread = messages.filter((m) => m.type === 'other' && m.status !== 'read' && m.messageId);
+    unread.forEach((m) => {
+      // Update local store
+      if (ChatStore.updateMessageStatus) ChatStore.updateMessageStatus(user, m.messageId, 'read');
+      // Update UI
+      updateMessageStatus(m.messageId, 'read');
+      // Notify sender via server
+      ws.send(JSON.stringify({ type: 'read', to: m.from, from: AppState.myUserName, messageId: m.messageId, timestamp: Date.now() }));
+    });
+  }
+
   document.body.addEventListener("click", unlockAudio, { once: true });
   document.body.addEventListener("touchstart", unlockAudio, { once: true });
 
@@ -310,6 +343,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let fileName = null;
     let fileSize = null;
     let fileType = null;
+    let messageId = null;
+    let status = null; // 'sent' | 'delivered' | 'read' | null
 
     if (typeof textOrObj === "object") {
       text = textOrObj.text;
@@ -318,12 +353,15 @@ document.addEventListener("DOMContentLoaded", () => {
       fileName = textOrObj.fileName;
       fileSize = textOrObj.fileSize;
       fileType = textOrObj.fileType;
+      messageId = textOrObj.messageId || null;
+      status = textOrObj.status || null;
     }
 
     const createMsg = (container) => {
       if (!container) return;
       const div = document.createElement("div");
       div.className = "msg " + className;
+      if (messageId) div.dataset.messageId = messageId;
 
       if (fromUser && className === "other") {
         const strong = document.createElement("strong");
@@ -398,6 +436,17 @@ document.addEventListener("DOMContentLoaded", () => {
         div.appendChild(document.createTextNode(text));
       } else {
         div.textContent = text;
+      }
+
+      // Status ticks for outgoing messages
+      if (className === "me") {
+        const statusSpan = document.createElement("span");
+        statusSpan.className = `msg-status ${status ? 'status-' + status : 'status-sent'}`;
+        statusSpan.innerHTML = `<span class="tick">✓</span>`; // single tick by default
+        // two ticks for delivered/read
+        if (status === 'delivered') statusSpan.innerHTML = `<span class="tick">✓</span><span class="tick">✓</span>`;
+        if (status === 'read') statusSpan.innerHTML = `<span class="tick">✓</span><span class="tick">✓</span>`;
+        div.appendChild(statusSpan);
       }
 
       // Add Timestamp if available
@@ -630,22 +679,35 @@ document.addEventListener("DOMContentLoaded", () => {
           }
           break;
         case "chat":
+          // Save incoming message and ACK delivery back to sender
+          const incoming = {
+            text: data.text,
+            type: "other",
+            from: data.from,
+            messageId: data.messageId || null,
+            timestamp: data.timestamp || Date.now(),
+            status: "delivered",
+          };
+
           if (data.from !== AppState.selectedUser) {
             showToast(`New message from ${data.from}`, "info");
-            // Also save message if not currently selected
-            ChatStore.saveMessage(data.from, {
-              text: data.text,
-              type: "other",
-              from: data.from,
-            });
+            ChatStore.saveMessage(data.from, incoming);
           } else {
-            // Save and Add
-            ChatStore.saveMessage(data.from, {
-              text: data.text,
-              type: "other",
-              from: data.from,
-            });
-            addMessage(data.text, "other", data.from);
+            ChatStore.saveMessage(data.from, incoming);
+            addMessage(incoming, "other", data.from);
+          }
+
+          // Send delivered ack back to the original sender via server
+          if (data.messageId) {
+            ws.send(
+              JSON.stringify({
+                type: "delivered",
+                to: data.from,
+                from: AppState.myUserName,
+                messageId: data.messageId,
+                timestamp: Date.now(),
+              })
+            );
           }
           break;
         case "file-message":
@@ -700,6 +762,22 @@ document.addEventListener("DOMContentLoaded", () => {
               console.error("Failed to save file:", err);
               addMessage(`Error saving file: ${data.fileName}`, "system");
             });
+          break;
+        case "delivered":
+          // Update message status to delivered (two grey ticks)
+          if (data.messageId) {
+            updateMessageStatus(data.messageId, "delivered");
+            // Persist status change
+            ChatStore.updateMessageStatus && ChatStore.updateMessageStatus(data.to || data.from, data.messageId, "delivered");
+          }
+          break;
+
+        case "read":
+          // Update message status to read (two purple ticks)
+          if (data.messageId) {
+            updateMessageStatus(data.messageId, "read");
+            ChatStore.updateMessageStatus && ChatStore.updateMessageStatus(data.to || data.from, data.messageId, "read");
+          }
           break;
         default:
           console.log("Unknown message:", data.type);
@@ -1513,28 +1591,41 @@ document.addEventListener("DOMContentLoaded", () => {
         li.classList.remove("selected");
       }
     });
+    // Mark messages as read when opening a chat
+    markMessagesRead(user);
   }
 
   function sendChat(inputEl) {
     const text = inputEl.value.trim();
     if (!text || !AppState.selectedUser) return;
 
+    // Create a unique messageId so we can track delivery/read acks
+    const messageId = `${Date.now()}-${Math.random().toString(16).slice(2,8)}`;
+
+    // Send chat with id
     ws.send(
       JSON.stringify({
         type: "chat",
         to: AppState.selectedUser,
         from: AppState.myUserName,
         text: text,
+        messageId: messageId,
+        timestamp: Date.now(),
       })
     );
 
+    // Persist locally with status 'sent'
     ChatStore.saveMessage(AppState.selectedUser, {
       text: text,
       type: "me",
       from: AppState.myUserName,
+      messageId: messageId,
+      status: "sent",
+      timestamp: Date.now(),
     });
 
-    addMessage(text, "me");
+    // Immediately show as sent (one tick)
+    addMessage({ text, messageId, status: 'sent', timestamp: Date.now() }, "me");
     inputEl.value = "";
   }
 
