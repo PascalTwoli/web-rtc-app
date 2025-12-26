@@ -208,7 +208,10 @@ document.addEventListener("DOMContentLoaded", () => {
 			_typingRemovalTimer = null;
 		}
 		if (_typingRemovalHandler && typingIndicator) {
-			typingIndicator.removeEventListener('transitionend', _typingRemovalHandler);
+			typingIndicator.removeEventListener(
+				"transitionend",
+				_typingRemovalHandler
+			);
 			_typingRemovalHandler = null;
 		}
 
@@ -267,7 +270,10 @@ document.addEventListener("DOMContentLoaded", () => {
 			_typingRemovalTimer = null;
 		}
 		if (_typingRemovalHandler && typingIndicator) {
-			typingIndicator.removeEventListener('transitionend', _typingRemovalHandler);
+			typingIndicator.removeEventListener(
+				"transitionend",
+				_typingRemovalHandler
+			);
 			_typingRemovalHandler = null;
 		}
 
@@ -275,25 +281,44 @@ document.addEventListener("DOMContentLoaded", () => {
 		_typingRemovalHandler = (e) => {
 			// remove on first transition end (opacity or transform)
 			if (!typingIndicator) return;
-			if (typingIndicator.classList.contains('typing-hide')) {
-				if (typingIndicator.parentNode) typingIndicator.parentNode.removeChild(typingIndicator);
+			if (typingIndicator.classList.contains("typing-hide")) {
+				if (typingIndicator.parentNode)
+					typingIndicator.parentNode.removeChild(typingIndicator);
 				typingIndicator = null;
 			}
 			// cleanup
-			if (_typingRemovalTimer) { clearTimeout(_typingRemovalTimer); _typingRemovalTimer = null; }
-			typingIndicator && typingIndicator.removeEventListener('transitionend', _typingRemovalHandler);
+			if (_typingRemovalTimer) {
+				clearTimeout(_typingRemovalTimer);
+				_typingRemovalTimer = null;
+			}
+			typingIndicator &&
+				typingIndicator.removeEventListener(
+					"transitionend",
+					_typingRemovalHandler
+				);
 			_typingRemovalHandler = null;
 		};
 
 		if (typingIndicator) {
-			typingIndicator.addEventListener('transitionend', _typingRemovalHandler);
+			typingIndicator.addEventListener(
+				"transitionend",
+				_typingRemovalHandler
+			);
 			// fallback: remove after slightly longer than CSS transition (280ms)
 			_typingRemovalTimer = setTimeout(() => {
-				if (typingIndicator && typingIndicator.classList.contains('typing-hide')) {
-					if (typingIndicator.parentNode) typingIndicator.parentNode.removeChild(typingIndicator);
+				if (
+					typingIndicator &&
+					typingIndicator.classList.contains("typing-hide")
+				) {
+					if (typingIndicator.parentNode)
+						typingIndicator.parentNode.removeChild(typingIndicator);
 					typingIndicator = null;
 				}
-				if (_typingRemovalHandler && typingIndicator) typingIndicator.removeEventListener('transitionend', _typingRemovalHandler);
+				if (_typingRemovalHandler && typingIndicator)
+					typingIndicator.removeEventListener(
+						"transitionend",
+						_typingRemovalHandler
+					);
 				_typingRemovalHandler = null;
 				_typingRemovalTimer = null;
 			}, 420);
@@ -309,12 +334,18 @@ document.addEventListener("DOMContentLoaded", () => {
 			_typingRemovalTimer = null;
 		}
 		if (_typingRemovalHandler) {
-			try { typingIndicator.removeEventListener('transitionend', _typingRemovalHandler); } catch (e) {}
+			try {
+				typingIndicator.removeEventListener(
+					"transitionend",
+					_typingRemovalHandler
+				);
+			} catch (e) {}
 			_typingRemovalHandler = null;
 		}
 
 		// remove from DOM immediately
-		if (typingIndicator.parentNode) typingIndicator.parentNode.removeChild(typingIndicator);
+		if (typingIndicator.parentNode)
+			typingIndicator.parentNode.removeChild(typingIndicator);
 		typingIndicator = null;
 	}
 
