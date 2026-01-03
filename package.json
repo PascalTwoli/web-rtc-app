@@ -1,10 +1,19 @@
 {
+  "name": "peers-app",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "start": "node server.js"
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:server": "npm run dev -w @peers/server",
+    "dev:client": "npm run dev -w @peers/client",
+    "build": "npm run build -w @peers/client",
+    "start": "npm run start -w @peers/server",
+    "install:all": "npm install"
   },
-  "dependencies": {
-    "bootstrap-icons": "^1.13.1",
-    "express": "^5.2.1",
-    "ws": "^8.18.3"
+  "devDependencies": {
+    "concurrently": "^9.1.0"
   }
 }

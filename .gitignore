@@ -1,1 +1,33 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# SSL certificates (keep in .gitignore for security)
+*.pem
+server.key
+server.cert
+
+# Vite
+*.local
