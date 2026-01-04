@@ -6,6 +6,7 @@ import ToastContainer from './components/ToastContainer'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useWebRTC } from './hooks/useWebRTC'
 import { AppContext } from './context/AppContext'
+import { saveMessage, getAllMessages, saveFile, deleteMessage as deleteMessageFromDB } from './services/storageService'
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
@@ -22,12 +23,18 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [typingUsers, setTypingUsers] = useState({}) // { username: timestamp }
 
-  // Check for persisted username
+  // Check for persisted username and load messages
   useEffect(() => {
     const savedUser = localStorage.getItem('peers_username')
     if (savedUser) {
       setUsername(savedUser)
       setIsLoggedIn(true)
+      // Load persisted messages
+      getAllMessages(savedUser).then(savedMessages => {
+        if (savedMessages && Object.keys(savedMessages).length > 0) {
+          setMessages(savedMessages)
+        }
+      }).catch(err => console.error('Failed to load messages:', err))
     }
   }, [])
 
@@ -58,6 +65,18 @@ function App() {
   // Refs to hold WebRTC handlers (set after useWebRTC is initialized)
   const handleAnswerRef = useRef(null)
   const handleIceCandidateRef = useRef(null)
+  const sendMessageRef = useRef(null)
+  const selectedUserRef = useRef(null)
+  const currentViewRef = useRef('placeholder')
+  
+  // Keep refs in sync with state
+  useEffect(() => {
+    selectedUserRef.current = selectedUser
+  }, [selectedUser])
+  
+  useEffect(() => {
+    currentViewRef.current = currentView
+  }, [currentView])
 
   // WebSocket connection
   const { sendMessage } = useWebSocket({
@@ -70,6 +89,43 @@ function App() {
           ...prev,
           [msg.from]: [...(prev[msg.from] || []), msg]
         }))
+        // Persist received message
+        saveMessage(username, msg.from, msg).catch(err => 
+          console.error('Failed to save message:', err)
+        )
+        // Auto-save file messages to saved files
+        if (msg.type === 'file' && msg.fileData) {
+          saveFile({
+            fileName: msg.fileName,
+            fileType: msg.fileType,
+            fileSize: msg.fileSize,
+            fileData: msg.fileData,
+            from: msg.from,
+            timestamp: msg.timestamp,
+          }).catch(err => console.error('Failed to auto-save file:', err))
+        }
+        // Send delivery confirmation back to sender
+        if (msg.messageId && sendMessageRef.current) {
+          // Always send delivered confirmation
+          sendMessageRef.current({
+            type: 'delivered',
+            to: msg.from,
+            messageId: msg.messageId,
+          })
+          
+          // If chat with this sender is currently open, also send read confirmation
+          const isChatOpen = selectedUserRef.current === msg.from && currentViewRef.current === 'chat'
+          if (isChatOpen) {
+            // Small delay to ensure delivered is processed first
+            setTimeout(() => {
+              sendMessageRef.current?.({
+                type: 'read',
+                to: msg.from,
+                messageId: msg.messageId,
+              })
+            }, 100)
+          }
+        }
       }
     },
     onOffer: (data) => {
@@ -85,6 +141,7 @@ function App() {
     },
     onTyping: (data) => {
       if (data.isTyping) {
+        // Store timestamp when typing started/refreshed
         setTypingUsers(prev => ({ ...prev, [data.from]: Date.now() }))
       } else {
         setTypingUsers(prev => {
@@ -92,6 +149,41 @@ function App() {
           delete updated[data.from]
           return updated
         })
+      }
+    },
+    onDeleteMessage: (data) => {
+      // Delete message from local state when receiver gets delete-for-everyone
+      if (data.from && data.messageId) {
+        setMessages(prev => ({
+          ...prev,
+          [data.from]: (prev[data.from] || []).filter(msg => msg.messageId !== data.messageId)
+        }))
+        // Also delete from IndexedDB
+        deleteMessageFromDB(data.messageId).catch(err => 
+          console.error('Failed to delete message from DB:', err)
+        )
+      }
+    },
+    onDelivered: (data) => {
+      // Update message status to delivered when receiver confirms
+      if (data.from && data.messageId) {
+        setMessages(prev => ({
+          ...prev,
+          [data.from]: (prev[data.from] || []).map(msg => 
+            msg.messageId === data.messageId ? { ...msg, status: 'delivered' } : msg
+          )
+        }))
+      }
+    },
+    onRead: (data) => {
+      // Update message status to read when receiver confirms
+      if (data.from && data.messageId) {
+        setMessages(prev => ({
+          ...prev,
+          [data.from]: (prev[data.from] || []).map(msg => 
+            msg.messageId === data.messageId ? { ...msg, status: 'read' } : msg
+          )
+        }))
       }
     },
     showToast,
@@ -136,13 +228,62 @@ function App() {
     handleIceCandidateRef.current = handleIceCandidate
   }, [handleAnswer, handleIceCandidate])
 
+  // Update sendMessageRef
+  useEffect(() => {
+    sendMessageRef.current = sendMessage
+  }, [sendMessage])
+
+  // Cleanup stale typing indicators (if no refresh received within 4 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now()
+      setTypingUsers(prev => {
+        const updated = { ...prev }
+        let hasChanges = false
+        for (const user in updated) {
+          if (now - updated[user] > 4000) {
+            delete updated[user]
+            hasChanges = true
+          }
+        }
+        return hasChanges ? updated : prev
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Update message status helper
+  const updateMessageStatus = useCallback((user, messageId, status) => {
+    setMessages(prev => ({
+      ...prev,
+      [user]: (prev[user] || []).map(msg => 
+        msg.messageId === messageId ? { ...msg, status } : msg
+      )
+    }))
+  }, [])
+
   const handleSelectUser = useCallback((user) => {
     setSelectedUser(user)
-    setCurrentView('chat')
+    if (user) {
+      setCurrentView('chat')
+      // Send read confirmations for unread messages from this user
+      const userMessages = messages[user] || []
+      userMessages.forEach(msg => {
+        if (!msg.isMe && msg.from !== username && msg.messageId) {
+          sendMessageRef.current?.({
+            type: 'read',
+            to: msg.from,
+            messageId: msg.messageId,
+          })
+        }
+      })
+    } else {
+      setCurrentView('placeholder')
+    }
     if (window.innerWidth <= 768) {
       setSidebarOpen(false)
     }
-  }, [])
+  }, [messages, username])
 
   const handleStartCall = useCallback(async (type) => {
     setCallType(type)
@@ -232,16 +373,35 @@ function App() {
     
     sendMessage(msg)
     
+    const localMsg = {
+      ...msg,
+      from: username,
+      isMe: true,
+      status: 'sent',
+    }
+    
     // Add to local messages
     setMessages(prev => ({
       ...prev,
-      [selectedUser]: [...(prev[selectedUser] || []), {
-        ...msg,
-        from: username,
-        isMe: true,
-        status: 'sent',
-      }]
+      [selectedUser]: [...(prev[selectedUser] || []), localMsg]
     }))
+    
+    // Persist sent message
+    saveMessage(username, selectedUser, localMsg).catch(err => 
+      console.error('Failed to save message:', err)
+    )
+    
+    // Auto-save sent file messages to saved files
+    if (data.type === 'file' && data.fileData) {
+      saveFile({
+        fileName: data.fileName,
+        fileType: data.fileType,
+        fileSize: data.fileSize,
+        fileData: data.fileData,
+        from: username,
+        timestamp: msg.timestamp,
+      }).catch(err => console.error('Failed to auto-save file:', err))
+    }
   }, [selectedUser, username, sendMessage])
 
   const sendTypingStatus = useCallback((isTyping) => {
@@ -271,6 +431,14 @@ function App() {
       })
     }, 1000)
     return () => clearInterval(interval)
+  }, [])
+
+  // Delete local messages
+  const deleteLocalMessages = useCallback((user, messageIds) => {
+    setMessages(prev => ({
+      ...prev,
+      [user]: (prev[user] || []).filter(msg => !messageIds.includes(msg.messageId))
+    }))
   }, [])
 
   const contextValue = {
@@ -303,6 +471,7 @@ function App() {
     showToast,
     toggleMute,
     toggleVideo,
+    deleteLocalMessages,
   }
 
   if (!isLoggedIn) {

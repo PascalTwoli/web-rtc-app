@@ -1,8 +1,8 @@
 // IndexedDB Service for saving chats and files
 
 const DB_NAME = 'WebRTCChatDB'
-const DB_VERSION = 1
-const CHATS_STORE = 'chats'
+const DB_VERSION = 2
+const MESSAGES_STORE = 'messages'
 const FILES_STORE = 'files'
 
 let db = null
@@ -25,11 +25,16 @@ export async function initDB() {
     request.onupgradeneeded = (event) => {
       const database = event.target.result
 
-      // Chats store - stores chat messages per user
-      if (!database.objectStoreNames.contains(CHATS_STORE)) {
-        const chatsStore = database.createObjectStore(CHATS_STORE, { keyPath: 'id', autoIncrement: true })
-        chatsStore.createIndex('username', 'username', { unique: false })
-        chatsStore.createIndex('timestamp', 'timestamp', { unique: false })
+      // Delete old stores if they exist
+      if (database.objectStoreNames.contains('chats')) {
+        database.deleteObjectStore('chats')
+      }
+
+      // Messages store - stores individual messages with conversation key
+      if (!database.objectStoreNames.contains(MESSAGES_STORE)) {
+        const messagesStore = database.createObjectStore(MESSAGES_STORE, { keyPath: 'messageId' })
+        messagesStore.createIndex('conversationKey', 'conversationKey', { unique: false })
+        messagesStore.createIndex('timestamp', 'timestamp', { unique: false })
       }
 
       // Files store - stores saved files
@@ -42,58 +47,107 @@ export async function initDB() {
   })
 }
 
-// Chat functions
-export async function saveChat(username, messages) {
+// Message functions - save individual messages
+export async function saveMessage(currentUser, otherUser, message) {
   const database = await initDB()
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction([CHATS_STORE], 'readwrite')
-    const store = transaction.objectStore(CHATS_STORE)
+    const transaction = database.transaction([MESSAGES_STORE], 'readwrite')
+    const store = transaction.objectStore(MESSAGES_STORE)
 
-    const chatData = {
-      username,
-      messages,
-      timestamp: Date.now(),
+    // Create a consistent conversation key (sorted usernames)
+    const conversationKey = [currentUser, otherUser].sort().join(':::')
+    
+    const messageData = {
+      ...message,
+      conversationKey,
+      savedAt: Date.now(),
     }
 
-    const request = store.add(chatData)
+    const request = store.put(messageData) // use put to update if exists
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })
 }
 
-export async function getChats(username) {
+// Get messages for a conversation between current user and another user
+export async function getConversationMessages(currentUser, otherUser) {
   const database = await initDB()
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction([CHATS_STORE], 'readonly')
-    const store = transaction.objectStore(CHATS_STORE)
-    const index = store.index('username')
-    const request = index.getAll(username)
+    const transaction = database.transaction([MESSAGES_STORE], 'readonly')
+    const store = transaction.objectStore(MESSAGES_STORE)
+    const index = store.index('conversationKey')
+    const conversationKey = [currentUser, otherUser].sort().join(':::')
+    const request = index.getAll(conversationKey)
 
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      const messages = request.result.sort((a, b) => a.timestamp - b.timestamp)
+      resolve(messages)
+    }
     request.onerror = () => reject(request.error)
   })
 }
 
-export async function getAllChats() {
+// Get all messages grouped by conversation partner
+export async function getAllMessages(currentUser) {
   const database = await initDB()
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction([CHATS_STORE], 'readonly')
-    const store = transaction.objectStore(CHATS_STORE)
+    const transaction = database.transaction([MESSAGES_STORE], 'readonly')
+    const store = transaction.objectStore(MESSAGES_STORE)
     const request = store.getAll()
 
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      const messages = request.result
+      // Group messages by the other user in the conversation
+      const grouped = {}
+      messages.forEach(msg => {
+        const [user1, user2] = msg.conversationKey.split(':::')
+        const otherUser = user1 === currentUser ? user2 : user1
+        if (!grouped[otherUser]) {
+          grouped[otherUser] = []
+        }
+        grouped[otherUser].push(msg)
+      })
+      // Sort each conversation by timestamp
+      Object.keys(grouped).forEach(user => {
+        grouped[user].sort((a, b) => a.timestamp - b.timestamp)
+      })
+      resolve(grouped)
+    }
     request.onerror = () => reject(request.error)
   })
 }
 
-export async function deleteChat(id) {
+export async function deleteMessage(messageId) {
   const database = await initDB()
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction([CHATS_STORE], 'readwrite')
-    const store = transaction.objectStore(CHATS_STORE)
-    const request = store.delete(id)
+    const transaction = database.transaction([MESSAGES_STORE], 'readwrite')
+    const store = transaction.objectStore(MESSAGES_STORE)
+    const request = store.delete(messageId)
 
     request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error)
+  })
+}
+
+export async function clearConversation(currentUser, otherUser) {
+  const database = await initDB()
+  const conversationKey = [currentUser, otherUser].sort().join(':::')
+  
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction([MESSAGES_STORE], 'readwrite')
+    const store = transaction.objectStore(MESSAGES_STORE)
+    const index = store.index('conversationKey')
+    const request = index.openCursor(IDBKeyRange.only(conversationKey))
+
+    request.onsuccess = (event) => {
+      const cursor = event.target.result
+      if (cursor) {
+        cursor.delete()
+        cursor.continue()
+      } else {
+        resolve()
+      }
+    }
     request.onerror = () => reject(request.error)
   })
 }

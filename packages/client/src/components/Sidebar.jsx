@@ -1,5 +1,5 @@
 import { useApp } from '../context/AppContext'
-import { LogOut } from 'lucide-react'
+import { LogOut, X } from 'lucide-react'
 import clsx from 'clsx'
 
 export default function Sidebar() {
@@ -33,14 +33,25 @@ export default function Sidebar() {
   }
 
   return (
-    <aside
-      className={clsx(
-        'w-80 bg-[#181818] border-r border-white/[0.08] flex flex-col flex-shrink-0 z-50',
-        'md:relative md:translate-x-0',
-        'absolute top-0 left-0 h-full transition-transform duration-300',
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+    <>
+      {/* Overlay for mobile */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
-    >
+      
+      <aside
+        className={clsx(
+          'bg-[#181818] border-r border-white/[0.08] flex flex-col flex-shrink-0 z-50',
+          // Mobile: full screen overlay
+          'fixed inset-0 md:relative md:inset-auto',
+          'md:w-80',
+          'transition-transform duration-300',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        )}
+      >
       {/* Header */}
       <div className="h-16 px-5 border-b border-white/[0.08] flex items-center justify-between bg-[#1e1e1e]/40">
         <div>
@@ -51,13 +62,24 @@ export default function Sidebar() {
           </div>
         </div>
         
-        <button
-          onClick={handleLogout}
-          className="p-2 rounded-full hover:bg-white/10 transition-colors"
-          title="Logout"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleLogout}
+            className="p-2 rounded-full hover:bg-white/10 transition-colors"
+            title="Logout"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+          
+          {/* Close button for mobile */}
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="p-2 rounded-full hover:bg-white/10 transition-colors md:hidden"
+            title="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Users List */}
@@ -72,7 +94,10 @@ export default function Sidebar() {
             {onlineUsers.map((user) => (
               <li
                 key={user}
-                onClick={() => setSelectedUser(user)}
+                onClick={() => {
+                  setSelectedUser(user)
+                  setSidebarOpen(false) // Close sidebar on mobile after selecting user
+                }}
                 className={clsx(
                   'p-2.5 rounded-xl cursor-pointer transition-all flex items-center gap-3',
                   'hover:bg-white/5 active:scale-[0.98]',
@@ -98,5 +123,6 @@ export default function Sidebar() {
         )}
       </div>
     </aside>
+    </>
   )
 }

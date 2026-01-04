@@ -10,6 +10,9 @@ export function useWebSocket({
   onIce,
   onHangup,
   onTyping,
+  onDeleteMessage,
+  onDelivered,
+  onRead,
   showToast,
 }) {
   const wsRef = useRef(null)
@@ -29,6 +32,9 @@ export function useWebSocket({
     onIce,
     onHangup,
     onTyping,
+    onDeleteMessage,
+    onDelivered,
+    onRead,
     showToast,
   })
   
@@ -42,6 +48,9 @@ export function useWebSocket({
       onIce,
       onHangup,
       onTyping,
+      onDeleteMessage,
+      onDelivered,
+      onRead,
       showToast,
     }
   })
@@ -198,7 +207,14 @@ export function useWebSocket({
               break
 
             case 'delivered':
+              cb.onDelivered?.(data)
+              break
             case 'read':
+              cb.onRead?.(data)
+              break
+
+            case 'delete-message':
+              cb.onDeleteMessage?.(data)
               break
 
             default:

@@ -100,6 +100,7 @@ wss.on("connection", (ws) => {
         case "file-message":
         case "delivered":
         case "read":
+        case "delete-message":
           // Forward the message to the target user
           const targetUserWs = Array.from(users.entries()).find(
             ([, username]) => username === data.to
@@ -183,6 +184,8 @@ function buildPayload(data, ws) {
       return { type: "delivered", messageId: data.messageId, from };
     case "read":
       return { type: "read", messageId: data.messageId, from };
+    case "delete-message":
+      return { type: "delete-message", messageId: data.messageId, from };
     case "reject":
     default:
       return { type: "reject", from };
