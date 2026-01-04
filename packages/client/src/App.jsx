@@ -199,16 +199,35 @@ function App() {
     setCurrentView('chat')
   }, [endCall, selectedUser, sendMessage])
 
-  const handleSendMessage = useCallback((text) => {
-    if (!selectedUser || !text.trim()) return
+  const handleSendMessage = useCallback((data) => {
+    if (!selectedUser) return
     
-    const messageId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    const msg = {
-      type: 'chat',
-      to: selectedUser,
-      text: text.trim(),
-      messageId,
-      timestamp: Date.now(),
+    // Handle both text messages and file messages
+    let msg
+    if (typeof data === 'string') {
+      // Text message
+      msg = {
+        type: 'chat',
+        to: selectedUser,
+        text: data,
+        messageId: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
+      }
+    } else if (data.type === 'file') {
+      // File message
+      msg = {
+        type: 'file-message',
+        to: selectedUser,
+        fileName: data.fileName,
+        fileType: data.fileType,
+        fileSize: data.fileSize,
+        fileData: data.fileData,
+        caption: data.caption || '',
+        messageId: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
+      }
+    } else {
+      return // Invalid message type
     }
     
     sendMessage(msg)

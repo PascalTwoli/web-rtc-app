@@ -70,6 +70,7 @@ function broadcast(msg) {
 
 wss.on("connection", (ws) => {
   console.log("🟢 New WebSocket Client Connected");
+  console.log(`Total clients: ${wss.clients.size}`);
 
   ws.send(
     JSON.stringify({
@@ -131,10 +132,12 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     const user_name = users.get(ws) || "Unknown";
     users.delete(ws);
+    const onlineUsers = Array.from(new Set(users.values()));
     console.log(`🔴 User Disconnected: ${user_name}`);
+    console.log(`Online users now: ${onlineUsers.join(', ') || 'none'}`);
     broadcast({
       type: "onlineUsers",
-      users: Array.from(new Set(users.values())), // Remove duplicates
+      users: onlineUsers,
     });
   });
 });
@@ -169,6 +172,9 @@ function buildPayload(data, ws) {
         fileType: data.fileType,
         fileSize: data.fileSize,
         fileData: data.fileData,
+        caption: data.caption || '',
+        messageId: data.messageId,
+        timestamp: data.timestamp || Date.now(),
         from,
       };
     case "typing":
@@ -185,10 +191,23 @@ function buildPayload(data, ws) {
 
 function handleUserJoined(ws, username) {
   console.log(`User joined: ${username}`);
+  
+  // Check if this username already exists with a different socket (reconnection)
+  for (const [existingWs, existingUsername] of users.entries()) {
+    if (existingUsername === username && existingWs !== ws) {
+      console.log(`Removing stale connection for: ${username}`);
+      users.delete(existingWs);
+    }
+  }
+  
   users.set(ws, username);
+  
+  const onlineUsers = Array.from(new Set(users.values()));
+  console.log(`Online users now: ${onlineUsers.join(', ')}`);
+  
   broadcast({
     type: "onlineUsers",
-    users: Array.from(new Set(users.values())), // Remove duplicates
+    users: onlineUsers,
   });
 }
 

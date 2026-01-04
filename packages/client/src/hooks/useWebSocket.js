@@ -138,7 +138,10 @@ export function useWebSocket({
               break
 
             case 'onlineUsers':
-              cb.onOnlineUsers?.(data.users.filter(u => u !== username))
+              console.log('Received online users:', data.users)
+              const filteredUsers = data.users.filter(u => u !== username)
+              console.log('Filtered online users (excluding self):', filteredUsers)
+              cb.onOnlineUsers?.(filteredUsers)
               break
 
             case 'offer':
@@ -177,7 +180,23 @@ export function useWebSocket({
               break
 
             case 'video-toggle':
+              break
+
             case 'file-message':
+              cb.onMessage?.({
+                type: 'file',
+                fileName: data.fileName,
+                fileType: data.fileType,
+                fileSize: data.fileSize,
+                fileData: data.fileData,
+                caption: data.caption || '',
+                from: data.from,
+                messageId: data.messageId,
+                timestamp: data.timestamp,
+                isMe: false,
+              })
+              break
+
             case 'delivered':
             case 'read':
               break
