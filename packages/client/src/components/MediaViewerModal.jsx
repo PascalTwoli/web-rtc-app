@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, Download, Bookmark, ChevronLeft, ChevronRight } from 'lucide-react'
 
 export default function MediaViewerModal({ media, onClose, onSave, mediaList = [], currentIndex = 0, onNavigate }) {
@@ -10,6 +10,52 @@ export default function MediaViewerModal({ media, onClose, onSave, mediaList = [
   const hasMultipleMedia = mediaList.length > 1
   const hasPrevious = currentIndex > 0
   const hasNext = currentIndex < mediaList.length - 1
+
+  // Touch swipe state
+  const touchStartX = useRef(null)
+  const touchStartY = useRef(null)
+  const [swipeOffset, setSwipeOffset] = useState(0)
+  const minSwipeDistance = 50
+
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX
+    touchStartY.current = e.touches[0].clientY
+  }
+
+  const handleTouchMove = (e) => {
+    if (!touchStartX.current) return
+    
+    const currentX = e.touches[0].clientX
+    const currentY = e.touches[0].clientY
+    const diffX = currentX - touchStartX.current
+    const diffY = currentY - touchStartY.current
+    
+    // Only track horizontal swipes (ignore vertical scrolling)
+    if (Math.abs(diffX) > Math.abs(diffY)) {
+      e.preventDefault()
+      // Limit swipe offset and add resistance at edges
+      const maxOffset = 150
+      let offset = diffX
+      if ((diffX > 0 && !hasPrevious) || (diffX < 0 && !hasNext)) {
+        offset = diffX * 0.3 // Add resistance at edges
+      }
+      setSwipeOffset(Math.max(-maxOffset, Math.min(maxOffset, offset)))
+    }
+  }
+
+  const handleTouchEnd = () => {
+    if (!touchStartX.current) return
+    
+    if (swipeOffset > minSwipeDistance && hasPrevious) {
+      onNavigate?.(currentIndex - 1)
+    } else if (swipeOffset < -minSwipeDistance && hasNext) {
+      onNavigate?.(currentIndex + 1)
+    }
+    
+    touchStartX.current = null
+    touchStartY.current = null
+    setSwipeOffset(0)
+  }
 
   const handleDownload = () => {
     const link = document.createElement('a')
@@ -113,16 +159,24 @@ export default function MediaViewerModal({ media, onClose, onSave, mediaList = [
         </button>
       )}
 
-      {/* Media content */}
+      {/* Media content with swipe support */}
       <div 
-        className="max-w-[90vw] max-h-[90vh] flex items-center justify-center"
+        className="max-w-[90vw] max-h-[90vh] flex items-center justify-center touch-pan-y"
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{
+          transform: `translateX(${swipeOffset}px)`,
+          transition: swipeOffset === 0 ? 'transform 0.3s ease-out' : 'none',
+        }}
       >
         {isImage && (
           <img
             src={media.fileData}
             alt={media.fileName}
-            className="max-w-full max-h-[90vh] object-contain rounded-lg"
+            className="max-w-full max-h-[90vh] object-contain rounded-lg select-none pointer-events-none"
+            draggable={false}
           />
         )}
         {isVideo && (

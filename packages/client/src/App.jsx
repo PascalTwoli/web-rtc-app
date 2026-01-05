@@ -13,6 +13,7 @@ function App() {
   const [username, setUsername] = useState('')
   const [selectedUser, setSelectedUser] = useState(null)
   const [onlineUsers, setOnlineUsers] = useState([])
+  const [allUsers, setAllUsers] = useState([]) // All registered users with online status
   const [messages, setMessages] = useState({})
   const [toasts, setToasts] = useState([])
   const [currentView, setCurrentView] = useState('placeholder')
@@ -22,6 +23,31 @@ function App() {
   const [isCalling, setIsCalling] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [typingUsers, setTypingUsers] = useState({}) // { username: timestamp }
+  const [userFilter, setUserFilter] = useState('all') // 'all' or 'online'
+
+  // Request notification permission on login
+  useEffect(() => {
+    if (isLoggedIn && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }, [isLoggedIn])
+
+  // Show browser notification for incoming message
+  const showNotification = useCallback((title, body, from) => {
+    if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+      const notification = new Notification(title, {
+        body,
+        icon: '/favicon.ico',
+        tag: from, // Prevent duplicate notifications from same user
+      })
+      notification.onclick = () => {
+        window.focus()
+        setSelectedUser(from)
+        setCurrentView('chat')
+        notification.close()
+      }
+    }
+  }, [])
 
   // Check for persisted username and load messages
   useEffect(() => {
@@ -83,6 +109,7 @@ function App() {
     username,
     isLoggedIn,
     onOnlineUsers: setOnlineUsers,
+    onAllUsers: setAllUsers,
     onMessage: (msg) => {
       if (msg.from) {
         setMessages(prev => ({
@@ -104,6 +131,9 @@ function App() {
             timestamp: msg.timestamp,
           }).catch(err => console.error('Failed to auto-save file:', err))
         }
+        // Show browser notification if page is not focused
+        const notificationBody = msg.type === 'file' ? `Sent a file: ${msg.fileName}` : msg.text
+        showNotification(`New message from ${msg.from}`, notificationBody, msg.from)
         // Send delivery confirmation back to sender
         if (msg.messageId && sendMessageRef.current) {
           // Always send delivered confirmation
@@ -182,6 +212,17 @@ function App() {
           ...prev,
           [data.from]: (prev[data.from] || []).map(msg => 
             msg.messageId === data.messageId ? { ...msg, status: 'read' } : msg
+          )
+        }))
+      }
+    },
+    onMessageQueued: (data) => {
+      // Message was queued for offline user - update status
+      if (data.to && data.messageId) {
+        setMessages(prev => ({
+          ...prev,
+          [data.to]: (prev[data.to] || []).map(msg => 
+            msg.messageId === data.messageId ? { ...msg, status: 'queued' } : msg
           )
         }))
       }
@@ -445,6 +486,9 @@ function App() {
     username,
     selectedUser,
     onlineUsers,
+    allUsers,
+    userFilter,
+    setUserFilter,
     messages,
     typingUsers,
     currentView,

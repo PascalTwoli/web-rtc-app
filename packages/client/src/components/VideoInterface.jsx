@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext'
-import { Mic, MicOff, Video, VideoOff, MessageSquare, PhoneOff, RefreshCw } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, MessageSquare, PhoneOff, Maximize2, Minimize2 } from 'lucide-react'
 import clsx from 'clsx'
 
 export default function VideoInterface() {
@@ -22,6 +22,8 @@ export default function VideoInterface() {
   const remoteVideoRef = useRef(null)
   const [callDuration, setCallDuration] = useState(0)
   const [showControls, setShowControls] = useState(true)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const containerRef = useRef(null)
 
   useEffect(() => {
     if (localVideoRef.current && localStream) {
@@ -42,6 +44,36 @@ export default function VideoInterface() {
     }, 1000)
     return () => clearInterval(interval)
   }, [])
+
+  // Auto-hide controls after 3 seconds of inactivity
+  useEffect(() => {
+    let timeout
+    const resetTimeout = () => {
+      setShowControls(true)
+      clearTimeout(timeout)
+      timeout = setTimeout(() => setShowControls(false), 3000)
+    }
+    
+    window.addEventListener('mousemove', resetTimeout)
+    window.addEventListener('touchstart', resetTimeout)
+    resetTimeout()
+    
+    return () => {
+      clearTimeout(timeout)
+      window.removeEventListener('mousemove', resetTimeout)
+      window.removeEventListener('touchstart', resetTimeout)
+    }
+  }, [])
+
+  const toggleFullscreen = async () => {
+    if (!document.fullscreenElement) {
+      await containerRef.current?.requestFullscreen()
+      setIsFullscreen(true)
+    } else {
+      await document.exitFullscreen()
+      setIsFullscreen(false)
+    }
+  }
 
   const formatDuration = (seconds) => {
     const hrs = Math.floor(seconds / 3600)
@@ -78,18 +110,21 @@ export default function VideoInterface() {
 
   return (
     <div 
+      ref={containerRef}
       className="flex-1 relative bg-black"
-      onClick={() => setShowControls(prev => !prev)}
     >
       {/* Call Status Bar */}
       <div className={clsx(
-        'absolute top-5 left-1/2 -translate-x-1/2 z-20 transition-opacity duration-300',
-        'bg-black/60 backdrop-blur-lg px-4 py-2 rounded-full border border-white/10',
-        showControls ? 'opacity-100' : 'opacity-0'
+        'absolute top-5 left-1/2 -translate-x-1/2 z-20 transition-all duration-300',
+        'bg-black/70 backdrop-blur-xl px-5 py-2.5 rounded-full border border-white/10 shadow-lg',
+        showControls ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'
       )}>
-        <div className="flex flex-col items-center">
-          <span className="text-xs text-gray-400 uppercase tracking-wider md:block hidden">Connected</span>
-          <span className="font-semibold tabular-nums">{formatDuration(callDuration)}</span>
+        <div className="flex items-center gap-3">
+          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+          <div className="flex flex-col items-center">
+            <span className="text-[10px] text-gray-400 uppercase tracking-wider hidden md:block">Connected</span>
+            <span className="font-semibold tabular-nums text-lg">{formatDuration(callDuration)}</span>
+          </div>
         </div>
       </div>
 
@@ -167,46 +202,54 @@ export default function VideoInterface() {
 
       {/* Controls Bar */}
       <div className={clsx(
-        'absolute bottom-5 left-1/2 -translate-x-1/2 z-20 transition-opacity duration-300',
-        'flex gap-5 bg-[#1e1e1e]/80 px-6 py-3 rounded-full backdrop-blur-lg',
-        showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        'absolute bottom-5 left-1/2 -translate-x-1/2 z-20 transition-all duration-300',
+        'flex gap-3 md:gap-4 bg-black/70 backdrop-blur-xl px-4 md:px-6 py-3 rounded-full border border-white/10 shadow-2xl',
+        showControls ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'
       )}>
         <button
           onClick={(e) => { e.stopPropagation(); toggleMute() }}
           className={clsx(
-            'w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-110',
-            isMuted ? 'bg-white text-black' : 'bg-surface-light text-white hover:bg-[#444]'
+            'w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95',
+            isMuted ? 'bg-white text-black shadow-lg' : 'bg-white/10 text-white hover:bg-white/20'
           )}
           title={isMuted ? 'Unmute' : 'Mute'}
         >
-          {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+          {isMuted ? <MicOff className="w-5 h-5 md:w-6 md:h-6" /> : <Mic className="w-5 h-5 md:w-6 md:h-6" />}
         </button>
 
         <button
           onClick={(e) => { e.stopPropagation(); toggleVideo() }}
           className={clsx(
-            'w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-110',
-            isVideoOff ? 'bg-white text-black' : 'bg-surface-light text-white hover:bg-[#444]'
+            'w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95',
+            isVideoOff ? 'bg-white text-black shadow-lg' : 'bg-white/10 text-white hover:bg-white/20'
           )}
           title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
         >
-          {isVideoOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
+          {isVideoOff ? <VideoOff className="w-5 h-5 md:w-6 md:h-6" /> : <Video className="w-5 h-5 md:w-6 md:h-6" />}
         </button>
 
         <button
           onClick={(e) => { e.stopPropagation(); setCurrentView('chat') }}
-          className="w-12 h-12 rounded-full bg-surface-light hover:bg-[#444] flex items-center justify-center transition-all hover:scale-110"
+          className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95"
           title="Chat"
         >
-          <MessageSquare className="w-6 h-6" />
+          <MessageSquare className="w-5 h-5 md:w-6 md:h-6" />
+        </button>
+
+        <button
+          onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}
+          className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95 hidden md:flex"
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          {isFullscreen ? <Minimize2 className="w-5 h-5 md:w-6 md:h-6" /> : <Maximize2 className="w-5 h-5 md:w-6 md:h-6" />}
         </button>
 
         <button
           onClick={(e) => { e.stopPropagation(); handleHangup() }}
-          className="w-12 h-12 rounded-full bg-danger hover:bg-danger-hover flex items-center justify-center transition-all hover:scale-110"
+          className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95 shadow-lg shadow-red-500/30"
           title="Hang Up"
         >
-          <PhoneOff className="w-6 h-6" />
+          <PhoneOff className="w-5 h-5 md:w-6 md:h-6" />
         </button>
       </div>
     </div>

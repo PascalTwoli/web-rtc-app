@@ -19,10 +19,20 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Serve static client files in production
+const clientDistPath = path.join(__dirname, "..", "..", "client", "dist");
+if (fs.existsSync(clientDistPath)) {
+  console.log("Serving static files from:", clientDistPath);
+  app.use(express.static(clientDistPath));
+}
+
 // Health check endpoint
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: Date.now() });
 });
+
+// Enable trust proxy so Express recognizes ngrok headers ++++++++
+app.set("trust proxy", true);
 
 let server;
 let protocol = "http";
@@ -56,8 +66,15 @@ if (!USE_HTTP) {
 
 const wss = new WebSocketServer({ server });
 
-// Store users: socket → username
-const users = new Map();
+// Store active connections: socket → username
+const activeConnections = new Map();
+
+// Store all registered users (persistent - survives disconnections)
+// In production, this would be a database
+const registeredUsers = new Set();
+
+// Message queue for offline users: username → [messages]
+const messageQueue = new Map();
 
 function broadcast(msg) {
   const data = JSON.stringify(msg);
@@ -66,6 +83,41 @@ function broadcast(msg) {
       client.send(data);
     }
   });
+}
+
+// Get list of online usernames
+function getOnlineUsers() {
+  return Array.from(new Set(activeConnections.values()));
+}
+
+// Get list of all registered users with their online status
+function getAllUsersWithStatus() {
+  const onlineUsers = getOnlineUsers();
+  return Array.from(registeredUsers).map(username => ({
+    username,
+    isOnline: onlineUsers.includes(username)
+  }));
+}
+
+// Queue a message for an offline user
+function queueMessage(username, message) {
+  if (!messageQueue.has(username)) {
+    messageQueue.set(username, []);
+  }
+  messageQueue.get(username).push(message);
+  console.log(`📬 Queued message for offline user: ${username}`);
+}
+
+// Deliver queued messages to a user who just came online
+function deliverQueuedMessages(ws, username) {
+  const queue = messageQueue.get(username);
+  if (queue && queue.length > 0) {
+    console.log(`📨 Delivering ${queue.length} queued messages to ${username}`);
+    queue.forEach(message => {
+      ws.send(JSON.stringify(message));
+    });
+    messageQueue.delete(username);
+  }
 }
 
 wss.on("connection", (ws) => {
@@ -94,24 +146,19 @@ wss.on("connection", (ws) => {
         case "reject":
         case "ice":
         case "hangup":
-        case "chat":
         case "typing":
         case "video-toggle":
-        case "file-message":
         case "delivered":
         case "read":
         case "delete-message":
-          // Forward the message to the target user
-          const targetUserWs = Array.from(users.entries()).find(
-            ([, username]) => username === data.to
-          )?.[0];
+          // Forward real-time messages to the target user (only if online)
+          forwardToUser(data, ws, false);
+          break;
 
-          console.log("Forwarding", data.type, "to", data.to, "from", users.get(ws));
-
-          if (targetUserWs && targetUserWs.readyState === targetUserWs.OPEN) {
-            const payload = buildPayload(data, ws);
-            targetUserWs.send(JSON.stringify(payload));
-          }
+        case "chat":
+        case "file-message":
+          // Forward messages - queue if user is offline
+          forwardToUser(data, ws, true);
           break;
 
         case "ping":
@@ -131,20 +178,51 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
-    const user_name = users.get(ws) || "Unknown";
-    users.delete(ws);
-    const onlineUsers = Array.from(new Set(users.values()));
+    const user_name = activeConnections.get(ws) || "Unknown";
+    activeConnections.delete(ws);
+    const onlineUsers = getOnlineUsers();
     console.log(`🔴 User Disconnected: ${user_name}`);
     console.log(`Online users now: ${onlineUsers.join(', ') || 'none'}`);
+    
+    // Broadcast updated user list with status
     broadcast({
       type: "onlineUsers",
       users: onlineUsers,
     });
+    broadcast({
+      type: "allUsers",
+      users: getAllUsersWithStatus(),
+    });
   });
 });
 
+// Forward message to target user, optionally queue if offline
+function forwardToUser(data, ws, shouldQueue = false) {
+  const targetUserWs = Array.from(activeConnections.entries()).find(
+    ([, username]) => username === data.to
+  )?.[0];
+
+  const from = activeConnections.get(ws);
+  console.log("Forwarding", data.type, "to", data.to, "from", from);
+
+  const payload = buildPayload(data, ws);
+
+  if (targetUserWs && targetUserWs.readyState === targetUserWs.OPEN) {
+    targetUserWs.send(JSON.stringify(payload));
+  } else if (shouldQueue && registeredUsers.has(data.to)) {
+    // User is offline but registered - queue the message
+    queueMessage(data.to, payload);
+    // Notify sender that message was queued (will be delivered when user comes online)
+    ws.send(JSON.stringify({
+      type: "message-queued",
+      messageId: data.messageId,
+      to: data.to,
+    }));
+  }
+}
+
 function buildPayload(data, ws) {
-  const from = users.get(ws);
+  const from = activeConnections.get(ws);
   
   switch (data.type) {
     case "offer":
@@ -195,30 +273,60 @@ function buildPayload(data, ws) {
 function handleUserJoined(ws, username) {
   console.log(`User joined: ${username}`);
   
+  // Register the user (persistent)
+  registeredUsers.add(username);
+  
   // Check if this username already exists with a different socket (reconnection)
-  for (const [existingWs, existingUsername] of users.entries()) {
+  for (const [existingWs, existingUsername] of activeConnections.entries()) {
     if (existingUsername === username && existingWs !== ws) {
       console.log(`Removing stale connection for: ${username}`);
-      users.delete(existingWs);
+      activeConnections.delete(existingWs);
     }
   }
   
-  users.set(ws, username);
+  activeConnections.set(ws, username);
   
-  const onlineUsers = Array.from(new Set(users.values()));
+  const onlineUsers = getOnlineUsers();
   console.log(`Online users now: ${onlineUsers.join(', ')}`);
+  console.log(`Registered users: ${Array.from(registeredUsers).join(', ')}`);
   
+  // Send online users list
   broadcast({
     type: "onlineUsers",
     users: onlineUsers,
   });
+  
+  // Send all users with status
+  broadcast({
+    type: "allUsers",
+    users: getAllUsersWithStatus(),
+  });
+  
+  // Deliver any queued messages to this user
+  deliverQueuedMessages(ws, username);
 }
+
+// Fallback route - serve index.html for SPA client-side routing
+app.use((req, res, next) => {
+  if (req.method !== "GET" || req.path.startsWith("/api")) {
+    return next();
+  }
+  const indexPath = path.join(clientDistPath, "index.html");
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    next();
+  }
+});
 
 server.listen(PORT, HOST, () => {
   console.log(
     `${protocol.toUpperCase()} server running at ${protocol}://${HOST}:${PORT}`
   );
   console.log(`WebSocket signaling server running`);
+  if (fs.existsSync(clientDistPath)) {
+    console.log(`Client app being served from this server`);
+  }
 
   // Log network addresses
   import("os").then((os) => {

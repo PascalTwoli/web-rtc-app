@@ -4,6 +4,7 @@ export function useWebSocket({
   username,
   isLoggedIn,
   onOnlineUsers,
+  onAllUsers,
   onMessage,
   onOffer,
   onAnswer,
@@ -13,6 +14,7 @@ export function useWebSocket({
   onDeleteMessage,
   onDelivered,
   onRead,
+  onMessageQueued,
   showToast,
 }) {
   const wsRef = useRef(null)
@@ -26,6 +28,7 @@ export function useWebSocket({
   // Store callbacks in refs to avoid effect re-runs
   const callbacksRef = useRef({
     onOnlineUsers,
+    onAllUsers,
     onMessage,
     onOffer,
     onAnswer,
@@ -35,6 +38,7 @@ export function useWebSocket({
     onDeleteMessage,
     onDelivered,
     onRead,
+    onMessageQueued,
     showToast,
   })
   
@@ -42,6 +46,7 @@ export function useWebSocket({
   useEffect(() => {
     callbacksRef.current = {
       onOnlineUsers,
+      onAllUsers,
       onMessage,
       onOffer,
       onAnswer,
@@ -51,6 +56,7 @@ export function useWebSocket({
       onDeleteMessage,
       onDelivered,
       onRead,
+      onMessageQueued,
       showToast,
     }
   })
@@ -151,6 +157,17 @@ export function useWebSocket({
               const filteredUsers = data.users.filter(u => u !== username)
               console.log('Filtered online users (excluding self):', filteredUsers)
               cb.onOnlineUsers?.(filteredUsers)
+              break
+
+            case 'allUsers':
+              console.log('Received all users:', data.users)
+              const filteredAllUsers = data.users.filter(u => u.username !== username)
+              console.log('Filtered all users (excluding self):', filteredAllUsers)
+              cb.onAllUsers?.(filteredAllUsers)
+              break
+
+            case 'message-queued':
+              cb.onMessageQueued?.(data)
               break
 
             case 'offer':
