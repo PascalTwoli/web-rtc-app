@@ -2,7 +2,10 @@ import { useApp } from '../context/AppContext'
 import { PhoneOff } from 'lucide-react'
 
 export default function CallingOverlay() {
-  const { selectedUser, handleHangup, callType } = useApp()
+  const { selectedUser, callPeer, handleHangup, callType } = useApp()
+
+  // Use callPeer (actual call target) instead of selectedUser
+  const targetUser = callPeer || selectedUser
 
   const getInitials = (name) => {
     if (!name) return '??'
@@ -33,14 +36,14 @@ export default function CallingOverlay() {
         <div className="absolute inset-0 w-32 h-32 rounded-full border-2 border-white/5 animate-ping" style={{ animationDuration: '2.5s', animationDelay: '0.5s' }} />
         <div
           className="relative w-32 h-32 rounded-full flex items-center justify-center text-5xl font-bold text-white shadow-2xl border-4 border-white/20"
-          style={{ background: getAvatarColor(selectedUser) }}
+          style={{ background: getAvatarColor(targetUser) }}
         >
-          {getInitials(selectedUser)}
+          {getInitials(targetUser)}
         </div>
       </div>
       
       <h3 className="text-lg text-gray-400 mb-1">{callTypeText} Call</h3>
-      <p className="text-2xl font-semibold mb-2">{selectedUser}</p>
+      <p className="text-2xl font-semibold mb-2">{targetUser}</p>
       <p className="text-sm text-gray-500 mb-16">Ringing...</p>
 
       <button

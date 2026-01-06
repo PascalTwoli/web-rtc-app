@@ -252,7 +252,7 @@ export default function VideoInterface() {
             <>
               {localStream && !isAudioOnly && !isVideoOff ? (
                 <video
-                  ref={isSwapped ? remoteVideoRef : localVideoRef}
+                  ref={localVideoRef}
                   autoPlay
                   muted
                   playsInline
@@ -278,7 +278,7 @@ export default function VideoInterface() {
             <>
               {remoteStream && !isAudioOnly && !remoteVideoOff ? (
                 <video
-                  ref={isSwapped ? localVideoRef : remoteVideoRef}
+                  ref={remoteVideoRef}
                   autoPlay
                   playsInline
                   className="w-full h-full object-cover"

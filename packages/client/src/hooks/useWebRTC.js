@@ -12,6 +12,7 @@ export function useWebRTC({
   sendMessage,
   username,
   selectedUser,
+  callPeer,
   onCallConnected,
   onCallEnded,
 }) {
@@ -23,6 +24,9 @@ export function useWebRTC({
   const peerConnectionRef = useRef(null)
   const pendingCandidatesRef = useRef([])
   const dataChannelRef = useRef(null)
+  
+  // Use callPeer for signaling if available, otherwise fall back to selectedUser
+  const targetPeer = callPeer || selectedUser
 
   const createPeerConnection = useCallback((targetUser) => {
     const pc = new RTCPeerConnection(ICE_SERVERS)
@@ -48,7 +52,8 @@ export function useWebRTC({
       console.log('ICE connection state:', pc.iceConnectionState)
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         onCallConnected?.()
-      } else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
+      } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
+        // Only end call on failed/closed, not on 'disconnected' as it can recover
         onCallEnded?.()
       }
     }
@@ -229,10 +234,10 @@ export function useWebRTC({
         setIsVideoOff(!videoTrack.enabled)
         
         // Notify remote peer
-        if (selectedUser) {
+        if (targetPeer) {
           sendMessage({
             type: 'video-toggle',
-            to: selectedUser,
+            to: targetPeer,
             enabled: videoTrack.enabled,
           })
         }
@@ -256,10 +261,10 @@ export function useWebRTC({
             const offer = await pc.createOffer()
             await pc.setLocalDescription(offer)
             
-            if (selectedUser) {
+            if (targetPeer) {
               sendMessage({
                 type: 'offer',
-                to: selectedUser,
+                to: targetPeer,
                 offer: offer,
                 callType: 'video',
                 isUpgrade: true,
@@ -270,10 +275,10 @@ export function useWebRTC({
           setIsVideoOff(false)
           
           // Notify remote peer
-          if (selectedUser) {
+          if (targetPeer) {
             sendMessage({
               type: 'video-toggle',
-              to: selectedUser,
+              to: targetPeer,
               enabled: true,
             })
           }
@@ -282,7 +287,7 @@ export function useWebRTC({
         }
       }
     }
-  }, [localStream, sendMessage, selectedUser])
+  }, [localStream, sendMessage, targetPeer])
 
   return {
     localStream,

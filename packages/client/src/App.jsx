@@ -396,6 +396,7 @@ function App() {
     sendMessage,
     username,
     selectedUser,
+    callPeer,
     onCallConnected: () => {
       setIsCallActive(true)
       setIsCalling(false)
