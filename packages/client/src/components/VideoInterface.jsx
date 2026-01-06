@@ -1,28 +1,36 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useApp } from '../context/AppContext'
-import { Mic, MicOff, Video, VideoOff, MessageSquare, PhoneOff, Maximize2, Minimize2 } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, MessageSquare, PhoneOff, Maximize2, Minimize2, SwitchCamera } from 'lucide-react'
 import clsx from 'clsx'
 
 export default function VideoInterface() {
   const {
     username,
     selectedUser,
+    callPeer,
     localStream,
     remoteStream,
     callType,
     isMuted,
     isVideoOff,
+    remoteVideoOff,
     setCurrentView,
     handleHangup,
     toggleMute,
     toggleVideo,
+    sendMessage,
   } = useApp()
+
+  // Use callPeer (actual call participant) instead of selectedUser for display
+  const peerUser = callPeer || selectedUser
 
   const localVideoRef = useRef(null)
   const remoteVideoRef = useRef(null)
   const [callDuration, setCallDuration] = useState(0)
   const [showControls, setShowControls] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isSwapped, setIsSwapped] = useState(false) // For swapping main/PiP views
+  const [facingMode, setFacingMode] = useState('user') // 'user' or 'environment'
   const containerRef = useRef(null)
 
   useEffect(() => {
@@ -108,108 +116,215 @@ export default function VideoInterface() {
 
   const isAudioOnly = callType === 'audio'
 
+  // Flip camera (mobile only)
+  const flipCamera = useCallback(async () => {
+    if (!localStream) return
+    
+    const newFacingMode = facingMode === 'user' ? 'environment' : 'user'
+    
+    try {
+      // Stop current video track
+      localStream.getVideoTracks().forEach(track => track.stop())
+      
+      // Get new stream with different facing mode
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: newFacingMode }
+      })
+      
+      // Replace video track in local stream
+      const newVideoTrack = newStream.getVideoTracks()[0]
+      const oldVideoTrack = localStream.getVideoTracks()[0]
+      
+      if (oldVideoTrack) {
+        localStream.removeTrack(oldVideoTrack)
+      }
+      localStream.addTrack(newVideoTrack)
+      
+      // Update video element
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStream
+      }
+      
+      setFacingMode(newFacingMode)
+    } catch (error) {
+      console.error('Failed to flip camera:', error)
+    }
+  }, [localStream, facingMode])
+
+  // Swap main and PiP views
+  const swapViews = useCallback(() => {
+    setIsSwapped(prev => !prev)
+  }, [])
+
   return (
     <div 
       ref={containerRef}
-      className="flex-1 relative bg-black"
+      className="flex-1 relative bg-black h-full max-h-screen overflow-hidden"
     >
       {/* Call Status Bar */}
       <div className={clsx(
-        'absolute top-5 left-1/2 -translate-x-1/2 z-20 transition-all duration-300',
-        'bg-black/70 backdrop-blur-xl px-5 py-2.5 rounded-full border border-white/10 shadow-lg',
+        'absolute top-3 md:top-5 left-1/2 -translate-x-1/2 z-20 transition-all duration-300',
+        'bg-black/70 backdrop-blur-xl px-4 md:px-5 py-2 md:py-2.5 rounded-full border border-white/10 shadow-lg',
         showControls ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'
       )}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
           <div className="flex flex-col items-center">
             <span className="text-[10px] text-gray-400 uppercase tracking-wider hidden md:block">Connected</span>
-            <span className="font-semibold tabular-nums text-lg">{formatDuration(callDuration)}</span>
+            <span className="font-semibold tabular-nums text-base md:text-lg">{formatDuration(callDuration)}</span>
           </div>
         </div>
       </div>
 
-      {/* Video Grid */}
-      <div className="w-full h-full relative p-5">
-        {/* Remote Video (Full screen) */}
-        <div className="w-full h-full rounded-xl overflow-hidden bg-black relative">
-          {remoteStream ? (
+      {/* Video Grid - constrained to viewport */}
+      <div className="absolute inset-0 p-2 md:p-4">
+        {/* Main Video (Full screen) - shows remote by default, or local if swapped */}
+        <div className="w-full h-full rounded-xl overflow-hidden bg-black relative flex items-center justify-center">
+          {!isSwapped ? (
+            // Remote video in main view
             <>
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                className={clsx(
-                  'w-full h-full',
-                  isAudioOnly ? 'hidden' : 'object-cover'
-                )}
-              />
-              {isAudioOnly && (
+              {remoteStream && !isAudioOnly && !remoteVideoOff ? (
+                <video
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  className="w-full h-full object-contain md:object-cover"
+                />
+              ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-radial from-[#2c3e50] to-[#1a1a1a]">
                   <div
-                    className="w-36 h-36 rounded-full flex items-center justify-center text-5xl font-bold text-white mb-6 shadow-2xl border-4 border-white/10"
-                    style={{ background: getAvatarColor(selectedUser) }}
+                    className="w-28 h-28 md:w-36 md:h-36 rounded-full flex items-center justify-center text-4xl md:text-5xl font-bold text-white mb-4 md:mb-6 shadow-2xl border-4 border-white/10"
+                    style={{ background: getAvatarColor(peerUser) }}
                   >
-                    {getInitials(selectedUser)}
+                    {getInitials(peerUser)}
                   </div>
-                  <p className="text-2xl font-semibold">{selectedUser}</p>
-                  <p className="text-sm text-gray-400 mt-2">Audio Call</p>
+                  <p className="text-xl md:text-2xl font-semibold">{peerUser}</p>
+                  <p className="text-sm text-gray-400 mt-2">
+                    {isAudioOnly ? 'Audio Call' : remoteVideoOff ? 'Camera Off' : 'Connecting...'}
+                  </p>
                 </div>
               )}
+              <span className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-lg text-xs z-10">
+                {peerUser}
+              </span>
             </>
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-radial from-[#2c3e50] to-[#1a1a1a]">
-              <div
-                className="w-36 h-36 rounded-full flex items-center justify-center text-5xl font-bold text-white mb-6 shadow-2xl border-4 border-white/10"
-                style={{ background: getAvatarColor(selectedUser) }}
-              >
-                {getInitials(selectedUser)}
-              </div>
-              <p className="text-2xl font-semibold">{selectedUser}</p>
-            </div>
+            // Local video in main view (swapped)
+            <>
+              {localStream && !isAudioOnly && !isVideoOff ? (
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="w-full h-full object-contain md:object-cover"
+                  style={{ transform: 'scaleX(-1)' }}
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-radial from-[#34495e] to-[#1a1a1a]">
+                  <div
+                    className="w-28 h-28 md:w-36 md:h-36 rounded-full flex items-center justify-center text-4xl md:text-5xl font-bold text-white mb-4 md:mb-6 shadow-2xl border-4 border-white/10"
+                    style={{ background: getAvatarColor(username) }}
+                  >
+                    {getInitials(username)}
+                  </div>
+                  <p className="text-xl md:text-2xl font-semibold">You</p>
+                  <p className="text-sm text-gray-400 mt-2">
+                    {isAudioOnly ? 'Audio Call' : isVideoOff ? 'Camera Off' : ''}
+                  </p>
+                </div>
+              )}
+              <span className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-lg text-xs z-10">
+                You
+              </span>
+            </>
           )}
-          
-          <span className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded text-xs z-10">
-            {selectedUser}
-          </span>
         </div>
 
-        {/* Local Video (Picture-in-picture) */}
-        <div className="absolute bottom-24 right-5 w-28 h-40 md:w-60 md:h-40 rounded-xl overflow-hidden shadow-2xl border-2 border-[#333] z-10">
-          {localStream && !isAudioOnly && !isVideoOff ? (
-            <video
-              ref={localVideoRef}
-              autoPlay
-              muted
-              playsInline
-              className="w-full h-full object-cover"
-            />
+        {/* PiP Video - tap to swap */}
+        <div 
+          className="absolute bottom-20 right-2 md:right-4 w-20 h-28 sm:w-24 sm:h-32 md:w-32 md:h-24 lg:w-40 lg:h-28 rounded-xl overflow-hidden shadow-2xl border-2 border-[#333] z-10 bg-[#1a1a1a] cursor-pointer active:scale-95 transition-transform"
+          onClick={swapViews}
+        >
+          {!isSwapped ? (
+            // Local video in PiP (default)
+            <>
+              {localStream && !isAudioOnly && !isVideoOff ? (
+                <video
+                  ref={isSwapped ? remoteVideoRef : localVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover"
+                  style={{ transform: 'scaleX(-1)' }}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gradient-radial from-[#34495e] to-[#151515]">
+                  <div
+                    className="w-10 h-10 md:w-14 md:h-14 rounded-full flex items-center justify-center text-lg md:text-xl font-bold text-white"
+                    style={{ background: getAvatarColor(username) }}
+                  >
+                    {getInitials(username)}
+                  </div>
+                </div>
+              )}
+              <span className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px]">
+                You
+              </span>
+            </>
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-radial from-[#34495e] to-[#151515]">
-              <div
-                className="w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold text-white"
-                style={{ background: getAvatarColor(username) }}
-              >
-                {getInitials(username)}
-              </div>
-            </div>
+            // Remote video in PiP (swapped)
+            <>
+              {remoteStream && !isAudioOnly && !remoteVideoOff ? (
+                <video
+                  ref={isSwapped ? localVideoRef : remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gradient-radial from-[#2c3e50] to-[#151515]">
+                  <div
+                    className="w-10 h-10 md:w-14 md:h-14 rounded-full flex items-center justify-center text-lg md:text-xl font-bold text-white"
+                    style={{ background: getAvatarColor(peerUser) }}
+                  >
+                    {getInitials(peerUser)}
+                  </div>
+                </div>
+              )}
+              <span className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px]">
+                {peerUser}
+              </span>
+            </>
           )}
           
-          <span className="absolute bottom-2 left-2 bg-black/60 px-1.5 py-0.5 rounded text-[10px]">
-            You
-          </span>
+          {/* Muted/Video off indicators */}
+          <div className="absolute top-2 right-2 flex gap-1">
+            {isMuted && (
+              <div className="w-6 h-6 rounded-full bg-red-500/80 flex items-center justify-center">
+                <MicOff className="w-3 h-3" />
+              </div>
+            )}
+            {isVideoOff && !isAudioOnly && (
+              <div className="w-6 h-6 rounded-full bg-red-500/80 flex items-center justify-center">
+                <VideoOff className="w-3 h-3" />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Controls Bar */}
       <div className={clsx(
         'absolute bottom-5 left-1/2 -translate-x-1/2 z-20 transition-all duration-300',
-        'flex gap-3 md:gap-4 bg-black/70 backdrop-blur-xl px-4 md:px-6 py-3 rounded-full border border-white/10 shadow-2xl',
+        'flex gap-2 md:gap-4 bg-black/70 backdrop-blur-xl px-3 md:px-6 py-3 rounded-full border border-white/10 shadow-2xl',
         showControls ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'
       )}>
         <button
           onClick={(e) => { e.stopPropagation(); toggleMute() }}
           className={clsx(
-            'w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95',
+            'w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95',
             isMuted ? 'bg-white text-black shadow-lg' : 'bg-white/10 text-white hover:bg-white/20'
           )}
           title={isMuted ? 'Unmute' : 'Mute'}
@@ -220,7 +335,7 @@ export default function VideoInterface() {
         <button
           onClick={(e) => { e.stopPropagation(); toggleVideo() }}
           className={clsx(
-            'w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95',
+            'w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95',
             isVideoOff ? 'bg-white text-black shadow-lg' : 'bg-white/10 text-white hover:bg-white/20'
           )}
           title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
@@ -228,9 +343,20 @@ export default function VideoInterface() {
           {isVideoOff ? <VideoOff className="w-5 h-5 md:w-6 md:h-6" /> : <Video className="w-5 h-5 md:w-6 md:h-6" />}
         </button>
 
+        {/* Flip camera - mobile only */}
+        {!isAudioOnly && !isVideoOff && (
+          <button
+            onClick={(e) => { e.stopPropagation(); flipCamera() }}
+            className="w-10 h-10 md:hidden rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95"
+            title="Flip Camera"
+          >
+            <SwitchCamera className="w-5 h-5" />
+          </button>
+        )}
+
         <button
           onClick={(e) => { e.stopPropagation(); setCurrentView('chat') }}
-          className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95"
+          className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95"
           title="Chat"
         >
           <MessageSquare className="w-5 h-5 md:w-6 md:h-6" />
@@ -238,7 +364,7 @@ export default function VideoInterface() {
 
         <button
           onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}
-          className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95 hidden md:flex"
+          className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95 hidden md:flex"
           title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
         >
           {isFullscreen ? <Minimize2 className="w-5 h-5 md:w-6 md:h-6" /> : <Maximize2 className="w-5 h-5 md:w-6 md:h-6" />}
@@ -246,7 +372,7 @@ export default function VideoInterface() {
 
         <button
           onClick={(e) => { e.stopPropagation(); handleHangup() }}
-          className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95 shadow-lg shadow-red-500/30"
+          className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-95 shadow-lg shadow-red-500/30"
           title="Hang Up"
         >
           <PhoneOff className="w-5 h-5 md:w-6 md:h-6" />

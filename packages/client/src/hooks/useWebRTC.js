@@ -219,10 +219,12 @@ export function useWebRTC({
     }
   }, [localStream])
 
-  const toggleVideo = useCallback(() => {
+  const toggleVideo = useCallback(async () => {
     if (localStream) {
       const videoTrack = localStream.getVideoTracks()[0]
+      
       if (videoTrack) {
+        // Has video track - toggle it
         videoTrack.enabled = !videoTrack.enabled
         setIsVideoOff(!videoTrack.enabled)
         
@@ -233,6 +235,50 @@ export function useWebRTC({
             to: selectedUser,
             enabled: videoTrack.enabled,
           })
+        }
+      } else {
+        // No video track (audio-only call) - add video
+        try {
+          const videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' }
+          })
+          const newVideoTrack = videoStream.getVideoTracks()[0]
+          
+          // Add to local stream
+          localStream.addTrack(newVideoTrack)
+          
+          // Add to peer connection
+          const pc = peerConnectionRef.current
+          if (pc) {
+            pc.addTrack(newVideoTrack, localStream)
+            
+            // Renegotiate
+            const offer = await pc.createOffer()
+            await pc.setLocalDescription(offer)
+            
+            if (selectedUser) {
+              sendMessage({
+                type: 'offer',
+                to: selectedUser,
+                offer: offer,
+                callType: 'video',
+                isUpgrade: true,
+              })
+            }
+          }
+          
+          setIsVideoOff(false)
+          
+          // Notify remote peer
+          if (selectedUser) {
+            sendMessage({
+              type: 'video-toggle',
+              to: selectedUser,
+              enabled: true,
+            })
+          }
+        } catch (error) {
+          console.error('Failed to add video:', error)
         }
       }
     }

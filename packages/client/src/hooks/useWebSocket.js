@@ -10,11 +10,13 @@ export function useWebSocket({
   onAnswer,
   onIce,
   onHangup,
+  onReject,
   onTyping,
   onDeleteMessage,
   onDelivered,
   onRead,
   onMessageQueued,
+  onVideoToggle,
   showToast,
 }) {
   const wsRef = useRef(null)
@@ -34,11 +36,13 @@ export function useWebSocket({
     onAnswer,
     onIce,
     onHangup,
+    onReject,
     onTyping,
     onDeleteMessage,
     onDelivered,
     onRead,
     onMessageQueued,
+    onVideoToggle,
     showToast,
   })
   
@@ -52,11 +56,13 @@ export function useWebSocket({
       onAnswer,
       onIce,
       onHangup,
+      onReject,
       onTyping,
       onDeleteMessage,
       onDelivered,
       onRead,
       onMessageQueued,
+      onVideoToggle,
       showToast,
     }
   })
@@ -202,10 +208,11 @@ export function useWebSocket({
 
             case 'reject':
               cb.showToast?.(`${data.from} declined the call`, 'info')
-              cb.onHangup?.(data)
+              cb.onReject?.(data)
               break
 
             case 'video-toggle':
+              cb.onVideoToggle?.(data)
               break
 
             case 'file-message':

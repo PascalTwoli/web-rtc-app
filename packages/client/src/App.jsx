@@ -3,10 +3,11 @@ import LoginScreen from './components/LoginScreen'
 import Sidebar from './components/Sidebar'
 import MainContent from './components/MainContent'
 import ToastContainer from './components/ToastContainer'
+import CallEndedModal from './components/CallEndedModal'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useWebRTC } from './hooks/useWebRTC'
 import { AppContext } from './context/AppContext'
-import { saveMessage, getAllMessages, saveFile, deleteMessage as deleteMessageFromDB } from './services/storageService'
+import { saveMessage, getAllMessages, saveFile, deleteMessage as deleteMessageFromDB, updateMessageStatus } from './services/storageService'
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
@@ -24,6 +25,9 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [typingUsers, setTypingUsers] = useState({}) // { username: timestamp }
   const [userFilter, setUserFilter] = useState('all') // 'all' or 'online'
+  const [callEndedInfo, setCallEndedInfo] = useState(null) // { duration, caller } for call ended modal
+  const [remoteVideoOff, setRemoteVideoOff] = useState(false) // Track when remote user turns off video
+  const [callPeer, setCallPeer] = useState(null) // Track who we're actually in a call with (separate from selectedUser)
 
   // Request notification permission on login
   useEffect(() => {
@@ -34,17 +38,25 @@ function App() {
 
   // Show browser notification for incoming message
   const showNotification = useCallback((title, body, from) => {
-    if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
-      const notification = new Notification(title, {
-        body,
-        icon: '/favicon.ico',
-        tag: from, // Prevent duplicate notifications from same user
-      })
-      notification.onclick = () => {
-        window.focus()
-        setSelectedUser(from)
-        setCurrentView('chat')
-        notification.close()
+    // Browser notification (when tab not focused)
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        const notification = new Notification(title, {
+          body,
+          icon: '/favicon.ico',
+          tag: `msg-${from}-${Date.now()}`,
+          requireInteraction: false,
+        })
+        notification.onclick = () => {
+          window.focus()
+          setSelectedUser(from)
+          setCurrentView('chat')
+          notification.close()
+        }
+        // Auto-close after 5 seconds
+        setTimeout(() => notification.close(), 5000)
+      } catch (err) {
+        console.error('Failed to show notification:', err)
       }
     }
   }, [])
@@ -94,6 +106,8 @@ function App() {
   const sendMessageRef = useRef(null)
   const selectedUserRef = useRef(null)
   const currentViewRef = useRef('placeholder')
+  const callTimeoutRef = useRef(null)
+  const callStartTimeRef = useRef(null)
   
   // Keep refs in sync with state
   useEffect(() => {
@@ -131,8 +145,16 @@ function App() {
             timestamp: msg.timestamp,
           }).catch(err => console.error('Failed to auto-save file:', err))
         }
-        // Show browser notification if page is not focused
+        // Show notifications
         const notificationBody = msg.type === 'file' ? `Sent a file: ${msg.fileName}` : msg.text
+        const isChatOpenWithSender = selectedUserRef.current === msg.from && currentViewRef.current === 'chat'
+        
+        // Show in-app toast notification if chat is not open with this sender
+        if (!isChatOpenWithSender) {
+          showToast(`${msg.from}: ${notificationBody.substring(0, 50)}${notificationBody.length > 50 ? '...' : ''}`, 'message')
+        }
+        
+        // Show browser notification
         showNotification(`New message from ${msg.from}`, notificationBody, msg.from)
         // Send delivery confirmation back to sender
         if (msg.messageId && sendMessageRef.current) {
@@ -162,12 +184,79 @@ function App() {
       console.log('Received incoming call from', data.from, 'type:', data.callType)
       setIncomingCall(data)
     },
-    onAnswer: (data) => handleAnswerRef.current?.(data),
+    onAnswer: (data) => {
+      // Call was answered - clear timeout and record start time
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current)
+        callTimeoutRef.current = null
+      }
+      callStartTimeRef.current = Date.now()
+      handleAnswerRef.current?.(data)
+    },
     onIce: (data) => handleIceCandidateRef.current?.(data),
-    onHangup: () => {
+    onHangup: (data) => {
+      // Clear timeout
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current)
+        callTimeoutRef.current = null
+      }
+      
+      // Clear incoming call modal if still showing (caller hung up before we answered)
+      setIncomingCall(null)
+      
+      // Calculate duration if call was active
+      let duration = null
+      if (callStartTimeRef.current) {
+        duration = Math.floor((Date.now() - callStartTimeRef.current) / 1000)
+      }
+      
+      // Log call based on state
+      if (data?.from) {
+        if (duration !== null && duration > 0) {
+          // Completed call with duration
+          const callLog = {
+            type: 'call-log',
+            callLogType: 'completed',
+            duration,
+            messageId: `call-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: Date.now(),
+            isMe: false,
+          }
+          setMessages(prev => ({
+            ...prev,
+            [data.from]: [...(prev[data.from] || []), callLog]
+          }))
+          saveMessage(username, data.from, { ...callLog, from: data.from }).catch(err => 
+            console.error('Failed to save call log:', err)
+          )
+          // Show call ended modal for completed calls
+          setCallEndedInfo({ duration, caller: data.from })
+        } else if (!callStartTimeRef.current) {
+          // Call was hung up before being answered - missed call for receiver
+          const callLog = {
+            type: 'call-log',
+            callLogType: 'missed',
+            messageId: `call-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: Date.now(),
+            isMe: false,
+          }
+          setMessages(prev => ({
+            ...prev,
+            [data.from]: [...(prev[data.from] || []), callLog]
+          }))
+          saveMessage(username, data.from, { ...callLog, from: data.from }).catch(err => 
+            console.error('Failed to save call log:', err)
+          )
+        }
+      }
+      
+      callStartTimeRef.current = null
       setIsCallActive(false)
       setIsCalling(false)
-      setCurrentView('chat')
+      setCallPeer(null)
+      if (currentViewRef.current === 'video') {
+        setCurrentView('chat')
+      }
     },
     onTyping: (data) => {
       if (data.isTyping) {
@@ -196,17 +285,29 @@ function App() {
     },
     onDelivered: (data) => {
       // Update message status to delivered when receiver confirms
+      // Status hierarchy: sent < queued < delivered < read (only upgrade, never downgrade)
       if (data.from && data.messageId) {
         setMessages(prev => ({
           ...prev,
-          [data.from]: (prev[data.from] || []).map(msg => 
-            msg.messageId === data.messageId ? { ...msg, status: 'delivered' } : msg
-          )
+          [data.from]: (prev[data.from] || []).map(msg => {
+            if (msg.messageId === data.messageId) {
+              // Only upgrade to delivered if current status is lower
+              if (msg.status === 'sent' || msg.status === 'queued' || !msg.status) {
+                return { ...msg, status: 'delivered' }
+              }
+            }
+            return msg
+          })
         }))
+        // Persist to IndexedDB (storage also enforces hierarchy)
+        updateMessageStatus(data.messageId, 'delivered').catch(err => 
+          console.error('Failed to persist delivered status:', err)
+        )
       }
     },
     onRead: (data) => {
       // Update message status to read when receiver confirms
+      // Read is the highest status - always applies
       if (data.from && data.messageId) {
         setMessages(prev => ({
           ...prev,
@@ -214,17 +315,65 @@ function App() {
             msg.messageId === data.messageId ? { ...msg, status: 'read' } : msg
           )
         }))
+        // Persist to IndexedDB
+        updateMessageStatus(data.messageId, 'read').catch(err => 
+          console.error('Failed to persist read status:', err)
+        )
       }
     },
     onMessageQueued: (data) => {
       // Message was queued for offline user - update status
+      // Only upgrade from 'sent' to 'queued'
       if (data.to && data.messageId) {
         setMessages(prev => ({
           ...prev,
-          [data.to]: (prev[data.to] || []).map(msg => 
-            msg.messageId === data.messageId ? { ...msg, status: 'queued' } : msg
-          )
+          [data.to]: (prev[data.to] || []).map(msg => {
+            if (msg.messageId === data.messageId) {
+              // Only set to queued if currently sent or no status
+              if (msg.status === 'sent' || !msg.status) {
+                return { ...msg, status: 'queued' }
+              }
+            }
+            return msg
+          })
         }))
+        // Persist to IndexedDB
+        updateMessageStatus(data.messageId, 'queued').catch(err => 
+          console.error('Failed to persist queued status:', err)
+        )
+      }
+    },
+    onReject: (data) => {
+      // Call was rejected by the other party
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current)
+        callTimeoutRef.current = null
+      }
+      // Log missed call (rejected by receiver)
+      if (data?.from) {
+        const callLog = {
+          type: 'call-log',
+          callLogType: 'declined',
+          messageId: `call-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          timestamp: Date.now(),
+          isMe: true,
+        }
+        setMessages(prev => ({
+          ...prev,
+          [data.from]: [...(prev[data.from] || []), callLog]
+        }))
+        saveMessage(username, data.from, { ...callLog, from: username }).catch(err => 
+          console.error('Failed to save call log:', err)
+        )
+      }
+      callStartTimeRef.current = null
+      setIsCallActive(false)
+      setIsCalling(false)
+    },
+    onVideoToggle: (data) => {
+      // Remote user toggled their video
+      if (data?.from) {
+        setRemoteVideoOff(!data.enabled)
       }
     },
     showToast,
@@ -293,6 +442,16 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
+  // Auto-dismiss call ended modal after 3 seconds
+  useEffect(() => {
+    if (callEndedInfo) {
+      const timer = setTimeout(() => {
+        setCallEndedInfo(null)
+      }, 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [callEndedInfo])
+
   // Update message status helper
   const updateMessageStatus = useCallback((user, messageId, status) => {
     setMessages(prev => ({
@@ -326,24 +485,120 @@ function App() {
     }
   }, [messages, username])
 
+  // Helper to add call log to chat
+  const addCallLog = useCallback((user, callLogType, duration = null) => {
+    const callLog = {
+      type: 'call-log',
+      callLogType, // 'outgoing', 'incoming', 'missed', 'rejected'
+      duration,
+      messageId: `call-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: Date.now(),
+      isMe: callLogType === 'outgoing' || callLogType === 'missed-outgoing',
+    }
+    setMessages(prev => ({
+      ...prev,
+      [user]: [...(prev[user] || []), callLog]
+    }))
+    // Persist call log
+    saveMessage(username, user, { ...callLog, from: username }).catch(err => 
+      console.error('Failed to save call log:', err)
+    )
+  }, [username])
+
+  // Detect when call peer goes offline during a call
+  useEffect(() => {
+    if ((isCallActive || isCalling) && callPeer) {
+      const isPeerOnline = onlineUsers.includes(callPeer)
+      if (!isPeerOnline) {
+        // Call peer went offline - end the call
+        showToast(`${callPeer} disconnected`, 'info')
+        
+        // Calculate duration if call was active
+        let duration = null
+        if (isCallActive && callStartTimeRef.current) {
+          duration = Math.floor((Date.now() - callStartTimeRef.current) / 1000)
+        }
+        
+        // End the call
+        endCall()
+        
+        // Clear timeout
+        if (callTimeoutRef.current) {
+          clearTimeout(callTimeoutRef.current)
+          callTimeoutRef.current = null
+        }
+        
+        // Show call ended modal if there was a duration
+        if (duration !== null && duration > 0) {
+          addCallLog(callPeer, 'completed', duration)
+          setCallEndedInfo({ duration, caller: callPeer })
+        }
+        
+        setIsCallActive(false)
+        setIsCalling(false)
+        setCallPeer(null)
+        callStartTimeRef.current = null
+        setCurrentView('chat')
+      }
+    }
+  }, [onlineUsers, isCallActive, isCalling, callPeer, endCall, showToast, addCallLog])
+
   const handleStartCall = useCallback(async (type) => {
     setCallType(type)
     setIsCalling(true)
+    setCallPeer(selectedUser) // Track who we're calling
+    callStartTimeRef.current = Date.now()
+    
+    // Set 30-second timeout for unanswered calls
+    callTimeoutRef.current = setTimeout(() => {
+      if (callTimeoutRef.current) {
+        // Call was not answered - auto hangup
+        showToast('Call not answered', 'info')
+        endCall()
+        if (selectedUserRef.current) {
+          sendMessageRef.current?.({
+            type: 'hangup',
+            to: selectedUserRef.current,
+          })
+          // Log missed call (outgoing)
+          addCallLog(selectedUserRef.current, 'missed-outgoing')
+        }
+        setIsCalling(false)
+        setIsCallActive(false)
+        setCallPeer(null)
+      }
+    }, 30000)
+    
     try {
       await startCall(selectedUser, type)
     } catch (error) {
+      // Clear timeout on error
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current)
+        callTimeoutRef.current = null
+      }
       setIsCalling(false)
+      setCallPeer(null)
       showToast(error.message || 'Failed to start call', 'danger')
     }
-  }, [selectedUser, startCall, showToast])
+  }, [selectedUser, startCall, showToast, endCall, addCallLog])
 
   const handleAnswerCall = useCallback(async () => {
     if (incomingCall) {
       const callData = incomingCall
+      // Set callPeer to track who we're in a call with
+      setCallPeer(callData.from)
       // Set selectedUser to the caller so ICE candidates are sent correctly
       setSelectedUser(callData.from)
       setCallType(callData.callType || 'video')
       setIncomingCall(null)
+      // Clear any existing timeout (from caller's side)
+      if (callTimeoutRef.current) {
+        clearTimeout(callTimeoutRef.current)
+        callTimeoutRef.current = null
+      }
+      // Record call start time for duration tracking
+      callStartTimeRef.current = Date.now()
       // Transition to video view immediately when answering
       setCurrentView('video')
       setIsCallActive(true)
@@ -352,6 +607,7 @@ function App() {
       } catch (error) {
         // Revert state on error
         setIsCallActive(false)
+        setCallPeer(null)
         setCurrentView('chat')
         showToast(error.message || 'Failed to answer call', 'danger')
       }
@@ -364,22 +620,47 @@ function App() {
         type: 'reject',
         to: incomingCall.from,
       })
+      // Log rejected call
+      addCallLog(incomingCall.from, 'rejected')
     }
     setIncomingCall(null)
-  }, [incomingCall, sendMessage])
+  }, [incomingCall, sendMessage, addCallLog])
 
   const handleHangup = useCallback(() => {
+    // Clear timeout if call ends before timeout
+    if (callTimeoutRef.current) {
+      clearTimeout(callTimeoutRef.current)
+      callTimeoutRef.current = null
+    }
+    
+    // Calculate call duration if call was active
+    let duration = null
+    if (isCallActive && callStartTimeRef.current) {
+      duration = Math.floor((Date.now() - callStartTimeRef.current) / 1000)
+    }
+    
+    // Use callPeer (the actual call participant) instead of selectedUser
+    const peer = callPeer || selectedUser
+    
     endCall()
-    if (selectedUser) {
+    if (peer) {
       sendMessage({
         type: 'hangup',
-        to: selectedUser,
+        to: peer,
       })
+      // Log completed call with duration (only if call was connected)
+      if (duration !== null && duration > 0) {
+        addCallLog(peer, 'completed', duration)
+        // Show call ended modal
+        setCallEndedInfo({ duration, caller: peer })
+      }
     }
     setIsCallActive(false)
     setIsCalling(false)
+    setCallPeer(null)
+    callStartTimeRef.current = null
     setCurrentView('chat')
-  }, [endCall, selectedUser, sendMessage])
+  }, [endCall, callPeer, selectedUser, sendMessage, isCallActive, addCallLog])
 
   const handleSendMessage = useCallback((data) => {
     if (!selectedUser) return
@@ -485,6 +766,7 @@ function App() {
   const contextValue = {
     username,
     selectedUser,
+    callPeer,
     onlineUsers,
     allUsers,
     userFilter,
@@ -501,6 +783,7 @@ function App() {
     remoteStream,
     isMuted,
     isVideoOff,
+    remoteVideoOff,
     sendMessage,
     setSelectedUser: handleSelectUser,
     setCurrentView,
@@ -528,6 +811,7 @@ function App() {
         <Sidebar />
         <MainContent />
         <ToastContainer toasts={toasts} />
+        <CallEndedModal callEndedInfo={callEndedInfo} />
       </div>
     </AppContext.Provider>
   )

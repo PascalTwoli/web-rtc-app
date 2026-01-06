@@ -129,6 +129,46 @@ export async function deleteMessage(messageId) {
   })
 }
 
+// Status hierarchy: sent (0) < queued (1) < delivered (2) < read (3)
+const STATUS_PRIORITY = {
+  'sent': 0,
+  'queued': 1,
+  'delivered': 2,
+  'read': 3,
+}
+
+// Update message status - only upgrades allowed, never downgrades
+export async function updateMessageStatus(messageId, newStatus) {
+  const database = await initDB()
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction([MESSAGES_STORE], 'readwrite')
+    const store = transaction.objectStore(MESSAGES_STORE)
+    
+    // First get the message
+    const getRequest = store.get(messageId)
+    getRequest.onsuccess = () => {
+      const message = getRequest.result
+      if (message) {
+        const currentPriority = STATUS_PRIORITY[message.status] ?? 0
+        const newPriority = STATUS_PRIORITY[newStatus] ?? 0
+        
+        // Only update if new status is higher priority (upgrade only)
+        if (newPriority > currentPriority) {
+          message.status = newStatus
+          const putRequest = store.put(message)
+          putRequest.onsuccess = () => resolve(true)
+          putRequest.onerror = () => reject(putRequest.error)
+        } else {
+          resolve(false) // Status not upgraded (already at higher status)
+        }
+      } else {
+        resolve(false) // Message not found
+      }
+    }
+    getRequest.onerror = () => reject(getRequest.error)
+  })
+}
+
 export async function clearConversation(currentUser, otherUser) {
   const database = await initDB()
   const conversationKey = [currentUser, otherUser].sort().join(':::')

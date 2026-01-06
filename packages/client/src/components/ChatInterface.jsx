@@ -3,6 +3,8 @@ import { useApp } from "../context/AppContext";
 import {
 	ArrowLeft,
 	Phone,
+	PhoneOff,
+	PhoneMissed,
 	Video,
 	Send,
 	Smile,
@@ -23,17 +25,17 @@ import MediaViewerModal from "./MediaViewerModal";
 import SavedFilesModal from "./SavedFilesModal";
 import { saveFile, deleteMessage as deleteMessageFromDB } from "../services/storageService";
 
-// Custom check icons for message status
+// Custom check icons for message status (bolder stroke)
 const CheckIcon = ({ className = "" }) => (
-	<svg className={className} viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
-		<path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z"/>
+	<svg className={className} viewBox="0 0 16 16" fill="currentColor" width="14" height="14" style={{ strokeWidth: 1 }}>
+		<path d="M13.485 3.929a1 1 0 0 1 .057 1.413l-6.5 7a1 1 0 0 1-1.436.033l-3.5-3.5a1 1 0 1 1 1.414-1.414l2.757 2.757 5.794-6.232a1 1 0 0 1 1.414-.057z"/>
 	</svg>
 );
 
 const CheckAllIcon = ({ className = "" }) => (
 	<svg className={className} viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
-		<path d="M12.354 4.354a.5.5 0 0 0-.708-.708L5 10.293 1.854 7.146a.5.5 0 1 0-.708.708l3.5 3.5a.5.5 0 0 0 .708 0l7-7zm-4.208 7-.896-.897.707-.707.543.543 6.646-6.647a.5.5 0 0 1 .708.708l-7 7a.5.5 0 0 1-.708 0z"/>
-		<path d="m5.354 7.146.896.897-.707.707-.897-.896a.5.5 0 1 1 .708-.708z"/>
+		<path d="M12.354 3.646a1 1 0 0 1 0 1.414l-7 7a1 1 0 0 1-1.414 0l-3.5-3.5a1 1 0 1 1 1.414-1.414L4.5 9.793l6.146-6.147a1 1 0 0 1 1.414 0z"/>
+		<path d="M7.354 10.354l-1-1 1.414-1.414 1 1-1.414 1.414zM15.354 3.646a1 1 0 0 1 0 1.414l-7 7a1 1 0 0 1-1.414 0l-.293-.293 1.414-1.414.293.293 6.293-6.293a1 1 0 0 1 1.414 0z"/>
 	</svg>
 );
 
@@ -52,7 +54,19 @@ export default function ChatInterface() {
 		sendTypingStatus,
 		sendMessage,
 		deleteLocalMessages,
+		localStream,
+		isMuted,
 	} = useApp();
+
+	// Ensure audio track stays enabled during call when viewing chat
+	useEffect(() => {
+		if (isCallActive && localStream && !isMuted) {
+			const audioTrack = localStream.getAudioTracks()[0];
+			if (audioTrack && !audioTrack.enabled) {
+				audioTrack.enabled = true;
+			}
+		}
+	}, [isCallActive, localStream, isMuted]);
 
 	const [inputValue, setInputValue] = useState("");
 	const [showEmoji, setShowEmoji] = useState(false);
@@ -148,6 +162,13 @@ export default function ChatInterface() {
 		return `linear-gradient(135deg, hsl(${hue}, 70%, 48%), hsl(${
 			(hue + 30) % 360
 		}, 70%, 43%))`;
+	};
+
+	const formatCallDuration = (seconds) => {
+		if (!seconds) return '0:00';
+		const mins = Math.floor(seconds / 60);
+		const secs = seconds % 60;
+		return `${mins}:${secs.toString().padStart(2, '0')}`;
 	};
 
 	const handleSubmit = (e) => {
@@ -473,6 +494,50 @@ export default function ChatInterface() {
 					</div>
 				) : (
 					userMessages.map((msg, idx) => (
+						msg.type === 'call-log' ? (
+							// Call log entry
+							<div
+								key={msg.messageId || idx}
+								className="self-center flex items-center gap-2 px-4 py-2 bg-[#252525] rounded-full text-sm text-gray-300 animate-message-in"
+							>
+								{msg.callLogType === 'completed' ? (
+									<>
+										<Phone className="w-4 h-4 text-green-400" />
+										<span>
+											{msg.isMe ? 'Outgoing call' : 'Incoming call'} • {formatCallDuration(msg.duration)}
+										</span>
+									</>
+								) : msg.callLogType === 'missed-outgoing' ? (
+									<>
+										<PhoneMissed className="w-4 h-4 text-red-400" />
+										<span>Call not answered</span>
+									</>
+								) : msg.callLogType === 'declined' ? (
+									<>
+										<PhoneOff className="w-4 h-4 text-orange-400" />
+										<span>Call declined</span>
+									</>
+								) : msg.callLogType === 'rejected' ? (
+									<>
+										<PhoneMissed className="w-4 h-4 text-red-400" />
+										<span>Missed call</span>
+									</>
+								) : msg.callLogType === 'missed' ? (
+									<>
+										<PhoneMissed className="w-4 h-4 text-red-400" />
+										<span>Missed call</span>
+									</>
+								) : (
+									<>
+										<Phone className="w-4 h-4 text-gray-400" />
+										<span>Call</span>
+									</>
+								)}
+								<span className="text-xs text-gray-500 ml-1">
+									{formatTime(msg.timestamp)}
+								</span>
+							</div>
+						) : (
 						<div
 							key={msg.messageId || idx}
 							className={clsx(
@@ -599,6 +664,7 @@ export default function ChatInterface() {
 								)}
 							</div>
 						</div>
+						)
 					))
 				)}
 
