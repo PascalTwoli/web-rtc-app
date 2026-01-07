@@ -164,8 +164,45 @@ export function useWebRTC({
   }, [sendMessage, getMediaStream, createPeerConnection])
 
   const handleAnswer = useCallback(async (data) => {
-    console.log('Received answer from', data.from)
     const pc = peerConnectionRef.current
+    
+    // Check if this is a renegotiation offer (for video upgrade)
+    if (data.offer && data.isUpgrade) {
+      console.log('Handling renegotiation offer for video upgrade from', data.from)
+      if (pc) {
+        try {
+          // If we don't have video yet, add it
+          if (localStream && !localStream.getVideoTracks().length) {
+            try {
+              const videoStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user' }
+              })
+              const newVideoTrack = videoStream.getVideoTracks()[0]
+              localStream.addTrack(newVideoTrack)
+              pc.addTrack(newVideoTrack, localStream)
+            } catch (err) {
+              console.log('Could not add local video:', err)
+            }
+          }
+          
+          await pc.setRemoteDescription(new RTCSessionDescription(data.offer))
+          const answer = await pc.createAnswer()
+          await pc.setLocalDescription(answer)
+          
+          sendMessage({
+            type: 'answer',
+            to: data.from,
+            answer: answer,
+          })
+        } catch (error) {
+          console.error('Failed to handle renegotiation:', error)
+        }
+      }
+      return
+    }
+    
+    // Normal answer handling
+    console.log('Received answer from', data.from)
     if (pc) {
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(data.answer))
@@ -182,7 +219,7 @@ export function useWebRTC({
     } else {
       console.warn('No peer connection when handling answer')
     }
-  }, [])
+  }, [localStream, sendMessage])
 
   const handleIceCandidate = useCallback(async (data) => {
     const pc = peerConnectionRef.current
@@ -224,16 +261,16 @@ export function useWebRTC({
     }
   }, [localStream])
 
-  const toggleVideo = useCallback(async () => {
+  const toggleVideo = useCallback(async (onVideoAdded) => {
     if (localStream) {
       const videoTrack = localStream.getVideoTracks()[0]
       
       if (videoTrack) {
-        // Has video track - toggle it
+        // Has video track - just toggle it on/off
         videoTrack.enabled = !videoTrack.enabled
         setIsVideoOff(!videoTrack.enabled)
         
-        // Notify remote peer
+        // Notify remote peer about video state change
         if (targetPeer) {
           sendMessage({
             type: 'video-toggle',
@@ -242,7 +279,7 @@ export function useWebRTC({
           })
         }
       } else {
-        // No video track (audio-only call) - add video
+        // No video track (audio-only call) - need to add video and renegotiate
         try {
           const videoStream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: 'user' }
@@ -257,7 +294,7 @@ export function useWebRTC({
           if (pc) {
             pc.addTrack(newVideoTrack, localStream)
             
-            // Renegotiate
+            // Renegotiate - create new offer for video upgrade
             const offer = await pc.createOffer()
             await pc.setLocalDescription(offer)
             
@@ -267,21 +304,15 @@ export function useWebRTC({
                 to: targetPeer,
                 offer: offer,
                 callType: 'video',
-                isUpgrade: true,
+                isUpgrade: true, // Flag to indicate this is an upgrade, not a new call
               })
             }
           }
           
           setIsVideoOff(false)
           
-          // Notify remote peer
-          if (targetPeer) {
-            sendMessage({
-              type: 'video-toggle',
-              to: targetPeer,
-              enabled: true,
-            })
-          }
+          // Callback to update call type in parent
+          onVideoAdded?.()
         } catch (error) {
           console.error('Failed to add video:', error)
         }

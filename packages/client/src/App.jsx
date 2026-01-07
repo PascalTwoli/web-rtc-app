@@ -6,6 +6,7 @@ import ToastContainer from './components/ToastContainer'
 import CallEndedModal from './components/CallEndedModal'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useWebRTC } from './hooks/useWebRTC'
+import { useAudio } from './hooks/useAudio'
 import { AppContext } from './context/AppContext'
 import { saveMessage, getAllMessages, saveFile, deleteMessage as deleteMessageFromDB, updateMessageStatus } from './services/storageService'
 
@@ -28,6 +29,35 @@ function App() {
   const [callEndedInfo, setCallEndedInfo] = useState(null) // { duration, caller } for call ended modal
   const [remoteVideoOff, setRemoteVideoOff] = useState(false) // Track when remote user turns off video
   const [callPeer, setCallPeer] = useState(null) // Track who we're actually in a call with (separate from selectedUser)
+  const [callStartTime, setCallStartTime] = useState(null) // When the call started (for persistent timer)
+
+  // Audio hooks for call tones and notifications
+  const { playDialTone, stopDialTone, playRingtone, stopRingtone, playNotification, playCallRejectedtone, stopAll } = useAudio()
+
+  // Play dial tone when calling
+  useEffect(() => {
+    if (isCalling) {
+      playDialTone()
+    } else {
+      stopDialTone()
+    }
+  }, [isCalling, playDialTone, stopDialTone])
+
+  // Play ringtone when receiving incoming call
+  useEffect(() => {
+    if (incomingCall) {
+      playRingtone()
+    } else {
+      stopRingtone()
+    }
+  }, [incomingCall, playRingtone, stopRingtone])
+
+  // Stop all tones when call becomes active
+  useEffect(() => {
+    if (isCallActive) {
+      stopAll()
+    }
+  }, [isCallActive, stopAll])
 
   // Request notification permission on login
   useEffect(() => {
@@ -152,6 +182,8 @@ function App() {
         // Show in-app toast notification if chat is not open with this sender
         if (!isChatOpenWithSender) {
           showToast(`${msg.from}: ${notificationBody.substring(0, 50)}${notificationBody.length > 50 ? '...' : ''}`, 'message')
+          // Play notification sound
+          playNotification()
         }
         
         // Show browser notification
@@ -181,7 +213,17 @@ function App() {
       }
     },
     onOffer: (data) => {
-      console.log('Received incoming call from', data.from, 'type:', data.callType)
+      console.log('Received offer from', data.from, 'type:', data.callType, 'isUpgrade:', data.isUpgrade)
+      
+      // If this is a video upgrade during an existing call, handle it silently
+      if (data.isUpgrade && isCallActive) {
+        // Handle renegotiation for video upgrade without showing incoming call modal
+        handleAnswerRef.current?.(data)
+        setCallType('video')
+        return
+      }
+      
+      // Normal incoming call
       setIncomingCall(data)
     },
     onAnswer: (data) => {
@@ -344,7 +386,9 @@ function App() {
       }
     },
     onReject: (data) => {
-      // Call was rejected by the other party
+      // Call was rejected by the other party - play rejected tone on caller's end
+      playCallRejectedtone()
+      
       if (callTimeoutRef.current) {
         clearTimeout(callTimeoutRef.current)
         callTimeoutRef.current = null
@@ -398,13 +442,18 @@ function App() {
     selectedUser,
     callPeer,
     onCallConnected: () => {
-      setIsCallActive(true)
-      setIsCalling(false)
-      setCurrentView('video')
+      // Only set if not already active (prevent timer reset on ICE reconnection)
+      if (!isCallActive) {
+        setIsCallActive(true)
+        setIsCalling(false)
+        setCallStartTime(Date.now())
+        setCurrentView('video')
+      }
     },
     onCallEnded: () => {
       setIsCallActive(false)
       setIsCalling(false)
+      setCallStartTime(null)
       if (selectedUser) {
         setCurrentView('chat')
       } else {
@@ -777,6 +826,8 @@ function App() {
     currentView,
     isCallActive,
     callType,
+    setCallType,
+    callStartTime,
     isCalling,
     incomingCall,
     sidebarOpen,
@@ -798,7 +849,7 @@ function App() {
     handleLogout,
     showToast,
     toggleMute,
-    toggleVideo,
+    toggleVideo: () => toggleVideo(() => setCallType('video')),
     deleteLocalMessages,
   }
 

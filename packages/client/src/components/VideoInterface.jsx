@@ -11,6 +11,8 @@ export default function VideoInterface() {
     localStream,
     remoteStream,
     callType,
+    setCallType,
+    callStartTime,
     isMuted,
     isVideoOff,
     remoteVideoOff,
@@ -24,8 +26,9 @@ export default function VideoInterface() {
   // Use callPeer (actual call participant) instead of selectedUser for display
   const peerUser = callPeer || selectedUser
 
-  const localVideoRef = useRef(null)
-  const remoteVideoRef = useRef(null)
+  // Separate refs for main and PiP video elements
+  const mainVideoRef = useRef(null)
+  const pipVideoRef = useRef(null)
   const [callDuration, setCallDuration] = useState(0)
   const [showControls, setShowControls] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -33,25 +36,34 @@ export default function VideoInterface() {
   const [facingMode, setFacingMode] = useState('user') // 'user' or 'environment'
   const containerRef = useRef(null)
 
+  // Assign streams to video elements based on swap state
   useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream
+    const mainVideo = mainVideoRef.current
+    const pipVideo = pipVideoRef.current
+    
+    if (!isSwapped) {
+      // Default: Remote in main, Local in PiP
+      if (mainVideo && remoteStream) mainVideo.srcObject = remoteStream
+      if (pipVideo && localStream) pipVideo.srcObject = localStream
+    } else {
+      // Swapped: Local in main, Remote in PiP
+      if (mainVideo && localStream) mainVideo.srcObject = localStream
+      if (pipVideo && remoteStream) pipVideo.srcObject = remoteStream
     }
-  }, [localStream])
+  }, [localStream, remoteStream, isSwapped])
 
+  // Use persistent call start time from context
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream
-      console.log('Remote stream attached:', remoteStream.getAudioTracks().length, 'audio tracks')
+    if (!callStartTime) return
+    
+    const updateDuration = () => {
+      setCallDuration(Math.floor((Date.now() - callStartTime) / 1000))
     }
-  }, [remoteStream])
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCallDuration(prev => prev + 1)
-    }, 1000)
+    
+    updateDuration() // Set initial value
+    const interval = setInterval(updateDuration, 1000)
     return () => clearInterval(interval)
-  }, [])
+  }, [callStartTime])
 
   // Auto-hide controls after 3 seconds of inactivity
   useEffect(() => {
@@ -116,35 +128,31 @@ export default function VideoInterface() {
 
   const isAudioOnly = callType === 'audio'
 
-  // Flip camera (mobile only)
+  // Flip camera (mobile only) - needs to be moved to useWebRTC for proper peer connection update
+  // For now, this is a simplified version that works locally
   const flipCamera = useCallback(async () => {
     if (!localStream) return
     
     const newFacingMode = facingMode === 'user' ? 'environment' : 'user'
     
     try {
-      // Stop current video track
-      localStream.getVideoTracks().forEach(track => track.stop())
-      
       // Get new stream with different facing mode
       const newStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: { facingMode: newFacingMode }
       })
       
-      // Replace video track in local stream
       const newVideoTrack = newStream.getVideoTracks()[0]
       const oldVideoTrack = localStream.getVideoTracks()[0]
       
       if (oldVideoTrack) {
+        // Stop old track
+        oldVideoTrack.stop()
         localStream.removeTrack(oldVideoTrack)
       }
-      localStream.addTrack(newVideoTrack)
       
-      // Update video element
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = localStream
-      }
+      // Add new track to stream
+      localStream.addTrack(newVideoTrack)
       
       setFacingMode(newFacingMode)
     } catch (error) {
@@ -181,65 +189,47 @@ export default function VideoInterface() {
       <div className="absolute inset-0 p-2 md:p-4">
         {/* Main Video (Full screen) - shows remote by default, or local if swapped */}
         <div className="w-full h-full rounded-xl overflow-hidden bg-black relative flex items-center justify-center">
-          {!isSwapped ? (
-            // Remote video in main view
-            <>
-              {remoteStream && !isAudioOnly && !remoteVideoOff ? (
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full h-full object-contain md:object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-radial from-[#2c3e50] to-[#1a1a1a]">
-                  <div
-                    className="w-28 h-28 md:w-36 md:h-36 rounded-full flex items-center justify-center text-4xl md:text-5xl font-bold text-white mb-4 md:mb-6 shadow-2xl border-4 border-white/10"
-                    style={{ background: getAvatarColor(peerUser) }}
-                  >
-                    {getInitials(peerUser)}
+          {/* Determine what to show in main view */}
+          {(() => {
+            const showingLocal = isSwapped
+            const hasVideo = showingLocal 
+              ? (localStream && !isVideoOff) 
+              : (remoteStream && !remoteVideoOff)
+            const showVideo = hasVideo && !isAudioOnly
+            const displayName = showingLocal ? 'You' : peerUser
+            const displayUsername = showingLocal ? username : peerUser
+            
+            return (
+              <>
+                {showVideo ? (
+                  <video
+                    ref={mainVideoRef}
+                    autoPlay
+                    muted={showingLocal}
+                    playsInline
+                    className="w-full h-full object-contain md:object-cover"
+                    style={showingLocal ? { transform: 'scaleX(-1)' } : undefined}
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-radial from-[#2c3e50] to-[#1a1a1a]">
+                    <div
+                      className="w-28 h-28 md:w-36 md:h-36 rounded-full flex items-center justify-center text-4xl md:text-5xl font-bold text-white mb-4 md:mb-6 shadow-2xl border-4 border-white/10"
+                      style={{ background: getAvatarColor(displayUsername) }}
+                    >
+                      {getInitials(displayUsername)}
+                    </div>
+                    <p className="text-xl md:text-2xl font-semibold">{displayName}</p>
+                    <p className="text-sm text-gray-400 mt-2">
+                      {isAudioOnly ? 'Audio Call' : (showingLocal ? (isVideoOff ? 'Camera Off' : '') : (remoteVideoOff ? 'Camera Off' : 'Connecting...'))}
+                    </p>
                   </div>
-                  <p className="text-xl md:text-2xl font-semibold">{peerUser}</p>
-                  <p className="text-sm text-gray-400 mt-2">
-                    {isAudioOnly ? 'Audio Call' : remoteVideoOff ? 'Camera Off' : 'Connecting...'}
-                  </p>
-                </div>
-              )}
-              <span className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-lg text-xs z-10">
-                {peerUser}
-              </span>
-            </>
-          ) : (
-            // Local video in main view (swapped)
-            <>
-              {localStream && !isAudioOnly && !isVideoOff ? (
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="w-full h-full object-contain md:object-cover"
-                  style={{ transform: 'scaleX(-1)' }}
-                />
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-radial from-[#34495e] to-[#1a1a1a]">
-                  <div
-                    className="w-28 h-28 md:w-36 md:h-36 rounded-full flex items-center justify-center text-4xl md:text-5xl font-bold text-white mb-4 md:mb-6 shadow-2xl border-4 border-white/10"
-                    style={{ background: getAvatarColor(username) }}
-                  >
-                    {getInitials(username)}
-                  </div>
-                  <p className="text-xl md:text-2xl font-semibold">You</p>
-                  <p className="text-sm text-gray-400 mt-2">
-                    {isAudioOnly ? 'Audio Call' : isVideoOff ? 'Camera Off' : ''}
-                  </p>
-                </div>
-              )}
-              <span className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-lg text-xs z-10">
-                You
-              </span>
-            </>
-          )}
+                )}
+                <span className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-lg text-xs z-10">
+                  {displayName}
+                </span>
+              </>
+            )
+          })()}
         </div>
 
         {/* PiP Video - tap to swap */}
@@ -247,57 +237,43 @@ export default function VideoInterface() {
           className="absolute bottom-20 right-2 md:right-4 w-20 h-28 sm:w-24 sm:h-32 md:w-32 md:h-24 lg:w-40 lg:h-28 rounded-xl overflow-hidden shadow-2xl border-2 border-[#333] z-10 bg-[#1a1a1a] cursor-pointer active:scale-95 transition-transform"
           onClick={swapViews}
         >
-          {!isSwapped ? (
-            // Local video in PiP (default)
-            <>
-              {localStream && !isAudioOnly && !isVideoOff ? (
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="w-full h-full object-cover"
-                  style={{ transform: 'scaleX(-1)' }}
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-gradient-radial from-[#34495e] to-[#151515]">
-                  <div
-                    className="w-10 h-10 md:w-14 md:h-14 rounded-full flex items-center justify-center text-lg md:text-xl font-bold text-white"
-                    style={{ background: getAvatarColor(username) }}
-                  >
-                    {getInitials(username)}
+          {/* PiP shows the opposite of main view */}
+          {(() => {
+            const showingLocal = !isSwapped // PiP shows local when NOT swapped
+            const hasVideo = showingLocal 
+              ? (localStream && !isVideoOff) 
+              : (remoteStream && !remoteVideoOff)
+            const showVideo = hasVideo && !isAudioOnly
+            const displayName = showingLocal ? 'You' : peerUser
+            const displayUsername = showingLocal ? username : peerUser
+            
+            return (
+              <>
+                {showVideo ? (
+                  <video
+                    ref={pipVideoRef}
+                    autoPlay
+                    muted={showingLocal}
+                    playsInline
+                    className="w-full h-full object-cover"
+                    style={showingLocal ? { transform: 'scaleX(-1)' } : undefined}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-radial from-[#34495e] to-[#151515]">
+                    <div
+                      className="w-10 h-10 md:w-14 md:h-14 rounded-full flex items-center justify-center text-lg md:text-xl font-bold text-white"
+                      style={{ background: getAvatarColor(displayUsername) }}
+                    >
+                      {getInitials(displayUsername)}
+                    </div>
                   </div>
-                </div>
-              )}
-              <span className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px]">
-                You
-              </span>
-            </>
-          ) : (
-            // Remote video in PiP (swapped)
-            <>
-              {remoteStream && !isAudioOnly && !remoteVideoOff ? (
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-gradient-radial from-[#2c3e50] to-[#151515]">
-                  <div
-                    className="w-10 h-10 md:w-14 md:h-14 rounded-full flex items-center justify-center text-lg md:text-xl font-bold text-white"
-                    style={{ background: getAvatarColor(peerUser) }}
-                  >
-                    {getInitials(peerUser)}
-                  </div>
-                </div>
-              )}
-              <span className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px]">
-                {peerUser}
-              </span>
-            </>
-          )}
+                )}
+                <span className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px]">
+                  {displayName}
+                </span>
+              </>
+            )
+          })()}
           
           {/* Muted/Video off indicators */}
           <div className="absolute top-2 right-2 flex gap-1">
